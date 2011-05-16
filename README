@@ -1,0 +1,29 @@
+CONTENTS OF THIS FILE
+---------------------
+
+ * About Education LifeDesks
+ * Configuration
+ * Legal information about Education LifeDesks
+
+ABOUT EDUCATION LIFEDESKS
+-------------------------
+Education LifeDesks http://www.edulifedesks.org provides a collaborative space for creating, editing, and publishing species information - either an entire species account or just a few subjects such as habitat and conservation. The goal of using a LifeDesk in many cases is to generate content to publish to the Encyclopedia of Life (EOL) http://www.eol.org. However, LifeDesks can be used in a variety of ways as there is no requirement to publish content out to EOL.
+
+CONFIGURATION
+-------------
+This repository contains a Drupal 'sites' folder with both EOL provided custom modules and contributed modules not provided by EOL.
+
+We recommend that you just extract the custom modules you would like to explore from this repository. If you would like to explore the contributed modules please refer to their project home pages on http://drupal.org/project/modules
+
+To quickly set up a local version of Education LifeDesks for review purposes:
+ 1. Download and configure a compatible* version of Drupal http://drupal.org/download.
+ 2. Replace the Drupal 'sites' folder in core with the one provided by this Education LifeDesks repository.
+
+* Education LifeDesks is built on Drupal 6, and has been tested on version 6.20. See CHANGELOG.txt in https://github.com/LifeDesks/Drupal repository for the current version of Drupal core in use. 
+
+LEGAL INFORMATION ABOUT EDUCATION LIFEDESKS
+-------------------------------------------
+ * Know your rights when using custom modules provided by EOL:
+   See LICENSE.txt and COPYRIGHT.txt within an EOL provided custom module's directory.
+ * Know your rights when using contributed modules not provided by EOL:
+   Look for additional information within the contributed module's directory regarding licenses and copyright, or refer to the module's project page on http://drupal.org/project/modules
