@@ -1,0 +1,64 @@
+<?php
+// $Id$
+/**
+ * @file
+ * Install and uninstall scripts for EOL Partnership module.
+ */
+/**
+ * Implementation of hook_install().
+ */
+function eol_partnership_install() {
+  db_query("UPDATE {system} SET weight = 11 WHERE name = 'eol_partnership'");
+}
+/**
+ * Implementation of hook_requirements().
+ * 
+ * Test and report EOL Partnership requirements
+ * 
+ * @param $phase
+ *   The current system installation phase.
+ * @return
+ *   An array of system requirements.
+ */
+function eol_partnership_requirements($phase) {
+  $requirements = array();
+  // Ensure translations don't break at install time
+  $t = get_t();
+  if ($phase == 'runtime' || $phase == 'install') {
+    $path = variable_get('eol_partnership_directory', '');
+    if (empty($path)) {
+      $path = file_create_path('eol-partnership');
+      variable_set('eol_partnership_directory', $path);
+    }
+    if (!file_check_directory($path, FILE_CREATE_DIRECTORY)) {
+      $requirements['eol_partnership_directory'] = array(
+        'title' => $t('EOL Partnership'),
+        'value' => $t('Missing directory'),
+        'severity' => REQUIREMENT_ERROR,
+        'description' => $t("The %eol_partnership_directory_path is missing. Check permissions on your file directory then refresh this page. If problem persists contact module developer.", array('%eol_partnership_directory_path' => $path)),
+      );
+      // Change severity on install to prevent aborting, but allow error to show at runtime
+      if ($phase == 'install') $requirements['eol_partnership_directory']['severity'] = REQUIREMENT_WARNING;
+    }
+    /* Overkill to state that directory is working
+    else {
+      $requirements['eol_partnership_directory'] = array(
+        'title' => $t('EOL Partnership'),
+        'value' => $t('EOL Partnership directory is configured'),
+        'severity' => REQUIREMENT_OK,
+        'description' => $t("The %eol_partnership_directory_path exists.", array('%eol_partnership_directory_path' => $path)),
+      );
+    }*/
+  }
+  return $requirements;
+}
+/**
+ * Impementation of hook_uninstall().
+ */
+function eol_partnership_uninstall() {
+  variable_del('eol_partnership_cron');
+  variable_del('eol_partnership_directory');
+  variable_del('eol_partnership_static');
+  variable_del('eol_partnership_view_display');
+  // TODO: Remove EOL Partnership view?
+}

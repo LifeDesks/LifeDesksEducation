@@ -1,0 +1,15 @@
+; $Id: wysiwyg_template.info,v 1.2 2009/06/10 19:53:53 jenlampton Exp $
+name = Wysiwyg Template Plugin
+description = Makes TinyMCE template plugin available to the Wysiwyg API: insert html templates
+package = User interface
+core = 6.x
+dependencies[] = wysiwyg
+
+
+
+; Information added by drupal.org packaging script on 2009-06-10
+version = "6.x-1.0-beta1"
+core = "6.x"
+project = "wysiwyg_template"
+datestamp = "1244671917"
+

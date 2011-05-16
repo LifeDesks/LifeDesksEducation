@@ -1,0 +1,1080 @@
+<?php
+// $Id$
+/**
+ * @file
+ * Module for creating content that is compatible with the Encyclopedia of Life (EOL) content partner exchange schema.
+ * This modules provides a default content type, view and theme template that can produce EOL ready XML content.
+ * @see http://eol.org/content/partners
+ * @see http://services.eol.org/schema/documentation_0_2.pdf
+ * @see http://services.eol.org/validator
+ */
+// Delta values for cron/on the fly schedule options
+define(EOL_PARTNERSHIP_DYNAMIC_XML, 'dynamic');
+define(EOL_PARTNERSHIP_STATIC_XML, 'static');
+
+define(EOL_PARTNERSHIP_VIEW_NAME, 'eol_partnership');
+define(EOL_PARTNERSHIP_DISPLAY_NAME, 'eol_partnership_xml');
+
+define(EOL_API_BASE_URL, 'http://www.eol.org/api/');
+
+// Hack to deal with missing preprocess function see template_preprocess_views_bonus_export_xml__eol_partnership__feed
+require_once(drupal_get_path('module', 'views_bonus_export') .'/views_bonus_export.theme.inc');
+/**
+ * Implementation of hook_help().
+ */
+function eol_partnership_help($path, $arg) {
+  $replace = array(
+    '!eol_url' => 'http://www.eol.org',
+  );
+  switch ($path) {
+    case 'admin/help#eol_partnership':
+      $txt = 'The  <acronym title="Encyclopedia of Life">EOL</acronym> Partnership module provides a mechanism for contributing content to the <a href="!eol_url">Encyclopedia of Life</a>.';
+      return '<p>' . t($txt, $replace) .'</p>';
+    case 'admin/content/eol-partnership/overview':
+      $txt = 'The  <acronym title="Encyclopedia of Life">EOL</acronym> Partnership module provides a mechanism for contributing content to the <a href="!eol_url">Encyclopedia of Life</a>.'
+            .' The overview assumes you are using the eol_partnership view provided with the module.';
+      return '<p>' . t($txt, $replace) .'</p>';
+    case 'admin/content/eol-partnership/add/fields':
+      $txt = 'Add <a href="!eol_url">Encyclopedia of Life (EOL)</a> compatible fields to your site. Choose to add the fields to an existing content type or to a new EOL taxon page content type.';
+      return '<p>' . t($txt, $replace) .'</p>';
+  }
+}
+/**
+ * Implementation of hook_init().
+ */
+function eol_partnership_init() {
+  drupal_add_css(drupal_get_path('module', 'eol_partnership') .'/css/eol_partnership.css', 'module', 'all');
+}
+/**
+ * Implementation of hook_cron().
+ */
+function eol_partnership_cron() {
+  if (variable_get('eol_partnership_cron', 0) == 1) {
+    // $memory_limit = ini_get('memory_limit');
+    // ini_set('memory_limit', '2048M');
+    // To address memory leaks caused by circular references in objects, ensure when using PHP 5.3 that garbage collection is enabled, uncomment following lines to enable and/or confirm
+    // if (gc_enabled() === 0) gc_enable();
+    // drupal_set_message(gc_enabled());
+    _eol_partnership_rebuild_xml_files();
+    // ini_set('memory_limit', $memory_limit);
+  }
+  else {
+    // watchdog('eol_partnership', 'EOL Partnership XML file was not rebuilt on cron. EOL Partnership cron setting is disabled in <a href="!eol_partnership_settings_url">EOL Partnership settings</a>', array('eol_partnership_settings_url' => 'admin/content/eol-partnership/settings'), WATCHDOG_INFO);
+  }
+}
+/**
+ * Asynchronous rebuild xml menu callback
+ */
+function _eol_partnership_rebuild_xml_ahah() {
+  $form_state = array('storage' => NULL, 'submitted' => FALSE);
+  $form_build_id = $_POST['form_build_id'];
+  // Get the form from the cache and a bunch of other necessary stuff.
+  $form = form_get_cache($form_build_id, $form_state);
+  $args = $form['#parameters'];
+  $form_id = array_shift($args);
+  $form_state['post'] = $form['#post'] = $_POST;
+  $form['#programmed'] = $form['#redirect'] = FALSE;
+  drupal_process_form($form_id, $form, $form_state);
+  $form = drupal_rebuild_form($form_id, $form_state, $args, $form_build_id);
+  
+  // Trigger rebuild xml and get response
+  $response = _eol_partnership_rebuild_xml_files();
+  
+  // Send response back to node form
+  return drupal_json(array('status' => TRUE, 'data' => $response));
+}
+/**
+ * Helper function rebuild static XML files
+ * 
+ */
+function _eol_partnership_rebuild_xml_files($batch = array()) {
+  // Generate EOL XML files
+  $view = views_get_view(EOL_PARTNERSHIP_VIEW_NAME, FALSE);
+  if (!empty($view) && !$view->disabled) {
+    unset($view); // No longer required
+    $destination = variable_get('eol_partnership_directory', '');
+    if (!empty($destination) && file_check_directory($destination)) {
+      // Add default 'all' file containing all publishable content, if entire site is content partner this will be used, otherwise EOL Partnership OG or other modules can jump in 
+      $files = array(array(
+        'filename' => 'eol',
+        'args' => array('all'),
+      ));
+      // Let modules add files and args $files is array(array('filename' => '', 'args' => array()))
+      // EOL Partnership OG module uses this hook
+      foreach (module_implements('eol_partnership_xml_files_alter') as $module) {
+        $files_added = array();
+        $function = $module . '_eol_partnership_xml_files_alter';
+        $files_added = call_user_func_array($function, $files);
+        $files = array_merge($files, $files_added);
+      }
+      
+      // Generate XML and create/replace files
+      // Define operations and finished function and add to batch
+      $batch['operations'][] = array('_eol_partnership_build_files', array($files, $destination));
+      $batch['finished'] = '_eol_partnership_build_files_finished';
+      // Set batch and begin processing
+      if (isset($batch['operations'])) {
+        batch_set($batch);
+        // Prevent progress bar from being used when not explicity set
+        if (empty($batch['progressive']) || $batch['progressive'] === FALSE) {
+          $batch =& batch_get();
+          $batch['progressive'] = FALSE;
+          unset($batch['progress_message']);
+        }
+        // Start process
+        batch_process();
+      }
+      
+      // $message = $_SESSION['eol_partnership_build_files_results']['build_xml_message'];
+      // unset($_SESSION['eol_partnership_build_files_results']['build_xml_message']);
+      unset($batch);
+      unset($files);
+      
+    } else {
+      $replace = array('!eol_partnership_directory' => $destination);
+      $txt = 'EOL Partnership XML file was not rebuilt. EOL Partnership directory <em>!eol_partnership_directory</em> is missing and could not be created.';
+      $message = t($txt, $replace);
+      // watchdog('eol_partnership', $txt, $replace, WATCHDOG_ERROR);
+      // drupal_set_message($message, 'error');
+      unset($replace);
+      unset($txt);
+      unset($message);
+    }
+    unset($destination);
+  } else {
+    $replace = array('!view_name' => EOL_PARTNERSHIP_VIEW_NAME);
+    $txt = 'EOL Partnership XML file was not rebuilt. EOL Partnership View !view_name is disabled or has been removed.';
+    $message = t($txt);
+    // watchdog('eol_partnership', $txt, NULL, WATCHDOG_NOTICE);
+    // drupal_set_message($message, 'error');
+    unset($replace);
+    unset($txt);
+    unset($message);
+  }
+  // Returning concatenated and html formatted message string - was going to use it with form ahah but opted for batch process instead
+  // return $message;
+}
+/**
+ * Batch operation for building XML files
+ */
+function _eol_partnership_build_files($files, $destination, &$context) {
+  // drupal_set_message('memory: ' . memory_get_usage() .' real memory: ' . memory_get_usage(TRUE) .' peak memory: ' . memory_get_peak_usage(), 'status');
+  // Set limit for number of files to process at a time
+  $limit = 1;
+  // Initialize sandbox if doesn't exist 
+  if (!isset($context['sandbox']['progress'])) {
+    $context['sandbox']['progress'] = 0;
+    $context['sandbox']['max'] = count($files);
+  }
+  // Store results in context so can 'tick off' files as they are processed
+  if (!isset($context['sandbox']['files'])) {
+    $context['sandbox']['files'] = $files;
+    unset($files); // No longer required
+  }
+  // Initialize time tracking
+  if (!isset($context['results']['time'])) {
+    $context['results']['time'] = microtime(TRUE);
+  }
+  $context['results']['build_xml_message'] = '';
+
+  $counter = 0;
+  // Process files
+  if (!empty($context['sandbox']['files'])) {
+    // Initialize view
+    $view = views_get_view(EOL_PARTNERSHIP_VIEW_NAME, TRUE);
+    $display = variable_get('eol_partnership_view_display', EOL_PARTNERSHIP_DISPLAY_NAME);
+    // Disable file download settings for static file generation
+    $view->display[$display]->display_options['style_options']['provide_file'] = 0;
+    
+    foreach ($context['sandbox']['files'] as $i => $file) {
+      // $message = '';
+      if ($counter < $limit) {
+        $xml = $view->preview($display, $file['args']);
+        $file_path_name = $destination .'/' .$file['filename'] .'.xml.gz';
+        if (_eol_partnership_validate_xml($xml, $file)) {
+          file_save_data(gzencode($xml), $file_path_name, FILE_EXISTS_REPLACE);
+          $replace = array('!filename' => $file['filename'] .'.xml.gz');
+          $txt = '!filename successfully rebuilt.';
+          // $message .= '<p>' . t($txt, $replace) .'</p>';
+        }
+        else {
+          // XML is not valid, could be an error or perhaps no data found
+          $replace = array('%filename' => $file['filename'] .'.xml.gz', '!logs_url' => url('admin/reports/dblog'), '%xml' => $xml);
+          if (empty($view->result)) {
+            // No results were found, assuming no critical errors in module, this probably means settings dictate that no nodes are publishable to eol, so we delete the XML file if exists.
+            if (file_delete($file_path_name)) {
+              $txt = 'EOL Partnership XML file %filename has been deleted. No publishable records were found.';
+              // watchdog('eol_partnership', $txt, $replace, WATCHDOG_NOTICE);
+              // drupal_set_message(t($txt, $replace), 'status');
+            }
+          }
+          else {
+            // $txt = 'There was an error building !filename, check <a href="!logs_url">recent log entries</a> for more information. %xml';
+          }
+          // $message .= '<p>' . t($txt, $replace) .'</p>';
+        }
+        unset($xml);
+        unset($file_path_name);
+      }
+      // Merge results
+      // $context['results']['build_xml_message'] .= $message;
+      // Update progress
+      $counter++;
+      $context['sandbox']['progress']++;
+      // Set message to appear under progress bar
+      $context['message'] = t('Rebuilt !count of !total files.', array('!count' => $i + 1, '!total' => $context['sandbox']['max']));
+      // Remove row so don't process it again
+      unset($context['sandbox']['files'][$i]);
+      // Limit reached, exit out of foreach
+      if ($counter == $limit) break;
+    }
+    unset($view);
+    unset($display);
+  }
+  // Check whether processing should finish
+  // Assign proportion completed to finished - anything less than 1 will continue processing, else process will finish
+  if ($context['sandbox']['max'] != 0) {
+    $context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
+  }
+  else {
+    $context['finished'] = 1;
+  }
+}
+/**
+ * Finished handler for batch build files
+ */
+function _eol_partnership_build_files_finished($success, $results, $operations) {
+  if ($success) {
+    $message = format_plural(count($results), 'One file processed in !time seconds.', '@count files processed in !time seconds.');
+    // watchdog('eol_partnership', $message, array('!time' => microtime(TRUE) - $results['time']), WATCHDOG_NOTICE);
+  }
+  else {
+    $message = t('Finished with an error.');
+    watchdog('eol_partnership', $message, array(), WATCHDOG_ERROR);
+  }
+  $_SESSION['eol_partnership_build_files_results'] = $results;
+}  
+
+/**
+ * Helper function to check xml for errors
+ * Returns TRUE if valid
+ * @param $xml
+ * @return string
+ */
+function _eol_partnership_validate_xml($xml, $file = NULL) {
+  $replace = array('!filename' => $file['filename'] .'.xml.gz', '%xml' => $xml);
+  if (preg_match('#^Error:#i', $xml)) {
+    $txt = 'EOL Partnership XML file <em>!filename</em> was not rebuilt: %xml';
+    // watchdog('eol_partnership', $txt, $replace, WATCHDOG_ERROR);
+    // drupal_set_message(t($txt, $replace), 'error');
+    return FALSE;
+  }
+  if (!preg_match('#^<[?]xml#i', $xml)) {
+    $txt = 'EOL Partnership XML file <em>!filename</em> was not rebuilt. Missing XML declaration.';
+    // watchdog('eol_partnership', $txt, $replace, WATCHDOG_ERROR);
+    // drupal_set_message(t($txt, $replace), 'error');
+    return FALSE;
+  }
+  // TODO: More validation
+  return TRUE;
+}
+/**
+ * Implementation of hook_perm().
+ */
+function eol_partnership_perm() {
+  return array('administer eol partnership');
+}
+/**
+ * Implementation of hook_menu().
+ */
+function eol_partnership_menu() {
+  $items['admin/content/eol-partnership'] = array(
+    'title' => 'EOL Partnership',
+    'description' => 'Import EOL compatible CCK fields into an existing content type or create a new one.',
+    'page callback' => 'eol_partnership_admin_overview',
+    'access arguments' => array('administer eol partnership'),
+    'type' => MENU_NORMAL_ITEM,
+    'file' => 'eol_partnership.admin.inc',
+    'file path' => drupal_get_path('module', 'eol_partnership') .'/includes',
+  );
+  $items['admin/content/eol-partnership/overview'] = array(
+    'title' => 'Overview',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+    'parent' => 'admin/content/eol-partnership',
+    'weight' => -10,
+  );
+  $items['admin/content/eol-partnership/add/fields'] = array(
+    'title' => 'Add fields',
+    'description' => 'Import EOL compatible CCK fields into an existing content type or create a new one.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('eol_partnership_form_add_fields'),
+    'access arguments' => array('administer eol partnership'),
+    'type' => MENU_LOCAL_TASK,
+    'parent' => 'admin/content/eol-partnership',
+    'file' => 'eol_partnership.admin.inc',
+    'file path' => drupal_get_path('module', 'eol_partnership') .'/includes',
+  );
+  $items['admin/content/eol-partnership/settings'] = array(
+    'title' => 'Settings',
+    'description' => 'Specify whether you would like to generate a static XML file updated via cron, or whether the harvested XML should be produced on the fly.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('eol_partnership_settings'),
+    'access arguments' => array('administer eol partnership'),
+    'type' => MENU_LOCAL_TASK,
+    'parent' => 'admin/content/eol-partnership',
+    'file' => 'eol_partnership.admin.inc',
+    'file path' => drupal_get_path('module', 'eol_partnership') .'/includes',
+  );
+  $items['admin/content/eol-partnership/rebuild-xml'] = array(
+    'page callback' => '_eol_partnership_rebuild_xml_ahah',
+    'access arguments' => array('administer eol partnership'),
+    'type' => MENU_CALLBACK,
+  );
+  return $items;
+}
+
+/**
+* Implementation of hook_views_api().
+*/
+function eol_partnership_views_api() {
+  return array(
+    'api' => 2,
+    'path' => drupal_get_path('module', 'eol_partnership') .'/includes',
+  );
+}
+/**
+ * Implementation of hook_views_default_views_alter().
+ * 
+ * Alters default view but will not update a view that has been customised in UI.
+ * To programmatically edit a custom view, use views_get_view, $view->add_item and $view->save() 
+ */
+function eol_partnership_views_default_views_alter(&$views) {
+  // Get content types and add filter to exclude all from default EOL Partnership view
+  if (isset($views[EOL_PARTNERSHIP_VIEW_NAME]->display['default']->display_options['filters']['type'])) {
+    // Only exclude types if type filter not been altered by another module i.e. if operator and value same as default
+    if ($views[EOL_PARTNERSHIP_VIEW_NAME]->display['default']->display_options['filters']['type']['operator'] == 'not in' && !count($views[EOL_PARTNERSHIP_VIEW_NAME]->display['default']->display_options['filters']['type']['value']) > 0) {
+      $types = node_get_types('names');
+      foreach ($types as $type => $name) {
+        $types[$type] = $type;
+      }
+      $views[EOL_PARTNERSHIP_VIEW_NAME]->display['default']->display_options['filters']['type']['value'] = $types;
+    }    
+  }
+}
+/**
+ * Implementation of hook_theme().
+ * 
+ */
+function eol_partnership_theme($existing, $type, $theme, $path) {
+  return array(
+    'eol_partnership_admin_overview' => array(
+      'arguments' => array('data' => array(), 'content' => array()),
+      'template' => 'eol-partnership-admin-overview',
+      'path' => drupal_get_path('module', 'eol_partnership') .'/theme',
+    ),
+    'views_bonus_export_xml__eol_partnership__feed' => array(
+      'arguments' => array('view' => NULL, 'options' => NULL, 'rows' => NULL, 'title' => NULL),
+      'template' => 'views-bonus-export-xml--eol-partnership--feed',
+      'path' => drupal_get_path('module', 'eol_partnership') .'/theme',
+      'original_hook' => 'views_bonus_export_xml',
+      'preprocess functions' => array(
+        'template_preprocess',
+        'template_preprocess_views_bonus_export_xml',
+        'template_preprocess_views_bonus_export_xml__eol_partnership__feed',
+      ),
+    ),
+  );
+  // preprocess function doesn't work: template_preprocess_views_bonus_export_xml is only being called when theme registry is rebuilt
+  // @see http://drupal.org/node/303586
+}
+/**
+ * Implementation of template_preprocess_hook().
+ */
+function template_preprocess_views_bonus_export_xml__eol_partnership__feed(&$vars) {
+  // Hack to fix missing preprocess
+  if (!isset($vars['header'])) template_preprocess_views_bonus_export_xml($vars);
+  // Remove $vars that are no longer required to keep memory down.
+  unset($vars['view']);
+  unset($vars['options']);
+  unset($vars['rows']);
+  
+  // Pause current batch, if exists and restart at end of this function
+  $batch =& batch_get();
+  if (!empty($batch)) {
+    $ref = $batch;
+    $batch = NULL;
+  }
+  // Check to ensure we've got a required fields correctly labelled before continuing.
+  // Need to provide a valid xml file even if its empty, otherwise EOL with return error on harvest.
+  // TODO: Check with EOL.org, how errors should be handled.
+  if (empty($vars['header']) || !in_array('dwc:ScientificName', $vars['header'])) {
+    $vars['eol_error'] = t('Error: The view is missing a field with the label "dwc:ScientificName". A correctly labelled scientific name field is required by the EOL XML schema.');
+  }
+  elseif (!array_key_exists('nid', $vars['header'])) {
+    $vars['eol_error'] = t('Error: The view is missing the node id field.');
+  }
+  elseif (count($vars['themed_rows']) == 0) {
+    $vars['eol_error'] = t('Error: No publishable records found.');
+  }
+  else {
+    $scientific_name_field = '';
+    $secondary_scientific_name_field = '';
+    $taxon_nid_field = '';
+    $language_field = '';
+    foreach ($vars['header'] as $field => $label) {
+      // Get name of scientific name field - assumes only one primary scientific name field
+      if ($label == 'dwc:ScientificName') $scientific_name_field = $field;
+      // Check for alternative scientific name field from nodereference
+      if ($label == 'dwc:ScientificName[secondary]') $secondary_scientific_name_field = $field;
+      if ($label == 'taxon_nid') $taxon_nid_field = $field; // If this has a value we assume current node is a data object
+      if ($label == 'Language') $language_field = $field;
+    }
+    $batch = array(
+      'title' => t('Processing row'),
+      'operations' => array(array('_eol_partnership_process_row', array($vars['themed_rows'], $vars['header'], $scientific_name_field, $taxon_nid_field, $secondary_scientific_name_field, $language_field))),
+      'finished' => '_eol_partnership_process_row_finished',
+    );
+    if (isset($batch['operations'])) {
+      batch_set($batch);
+      // Prevent progress bar from being used
+      $batch =& batch_get();
+      $batch['progressive'] = FALSE;
+      // Start process
+      batch_process();
+    }
+    $taxa_data = array();
+    $taxa_data = $_SESSION['eol_partnership_batch_results']['taxa'];
+    unset($_SESSION['eol_partnership_batch_results']['taxa']);
+    unset($scientific_name_field);
+    unset($taxon_nid_field);
+    unset($secondary_scientific_name_field);
+    
+    // If we have data then generate taxa xml for theme otherwise return error
+    if (count($taxa_data) > 0) {
+      $batch = array(
+        'title' => t('Generate xml'),
+        'operations' => array(array('_eol_partnership_generate_xml', array($taxa_data))),
+        'finished' => '_eol_partnership_generate_xml_finished',
+      );
+      if (isset($batch['operations'])) {
+        batch_set($batch);
+        // Prevent progress bar from being used
+        $batch =& batch_get();
+        $batch['progressive'] = FALSE;
+        // Start process
+        batch_process();
+      }
+      $taxa = array();
+      $taxa = $_SESSION['eol_partnership_batch_results']['taxa'];
+      unset($_SESSION['eol_partnership_batch_results']['taxa']);
+      unset($taxa_data);
+      $vars['taxa'] = $taxa;
+    } else {
+      $vars['eol_error'] = t('Error: No results returned after rows processed.');
+    }
+  }
+  unset($vars['header']);
+  unset($vars['themed_rows']);
+  if (!empty($ref)) {
+    $batch = $ref;
+  }
+}
+/**
+ * Batch generate xml
+ */
+function _eol_partnership_generate_xml($taxa_data, &$context) {
+  // Set limit for number of rows to process at a time, could remove it and have function just do one row
+  $limit = 1;
+  // Initialize sandbox if doesn't exist 
+  if (!isset($context['sandbox']['progress'])) {
+    $context['sandbox']['progress'] = 0;
+    $context['sandbox']['max'] = count($taxa_data);
+  }
+  // Store results in context so can 'tick off' rows as they are processed
+  if (!isset($context['sandbox']['taxa_data'])) {
+    $context['sandbox']['taxa_data'] = $taxa_data;
+    unset($taxa_data);
+  }
+  // Initialize time tracking
+  if (!isset($context['results']['time'])) {
+    $context['results']['time'] = microtime(TRUE);
+  }
+  $counter = 0;
+  // Sort taxa data
+  if (!empty($context['sandbox']['taxa_data'])) {
+    foreach ($context['sandbox']['taxa_data'] as $nid => $t) {
+      // Stop when reach limit
+      if ($counter < $limit) {
+        $taxon = array();
+        $taxon['dc:identifier'] = $t['dc:identifier'];
+        if (!empty($t['dc:source'])) $taxon['dc:source'] = $t['dc:source'];
+        if (!empty($t['dwc:Kingdom'])) $taxon['dwc:Kingdom'] = $t['dwc:Kingdom'];
+        if (!empty($t['dwc:Phylum'])) $taxon['dwc:Phylum'] = $t['dwc:Phylum'];
+        if (!empty($t['dwc:Class'])) $taxon['dwc:Class'] = $t['dwc:Class'];
+        if (!empty($t['dwc:Order'])) $taxon['dwc:Order'] = $t['dwc:Order'];
+        if (!empty($t['dwc:Family'])) $taxon['dwc:Family'] = $t['dwc:Family'];
+        if (!empty($t['dwc:Genus'])) $taxon['dwc:Genus'] = $t['dwc:Genus'];
+        $taxon['dwc:ScientificName'] = $t['dwc:ScientificName'];
+        if (!empty($t['commonName'])) $taxon['commonName'] = $t['commonName'];
+        if (!empty($t['synonym'])) $taxon['synonym'] = $t['synonym'];
+        if (!empty($t['dcterms:created'])) $taxon['dcterms:created'] = $t['dcterms:created'];
+        if (!empty($t['dcterms:modified'])) $taxon['dcterms:modified'] = $t['dcterms:modified'];
+        if (!empty($t['reference'])) $taxon['reference'] = $t['reference'];
+        if (!empty($t['data_objects'])) {
+          foreach ($t['data_objects'] as $objects) {
+            foreach ($objects as $o) {
+              $do = array();
+              if (!empty($o['dc:identifier'])) $do['dc:identifier'] = $o['dc:identifier'];
+              $do['dataType'] = $o['dataType'];
+              if (!empty($o['mimeType'])) $do['mimeType'] = $o['mimeType'];
+              if (!empty($o['agents'])) $do['agents'] = $o['agents'];
+              if (!empty($o['dcterms:created'])) $do['dcterms:created'] = $o['dcterms:created'];
+              if (!empty($o['dcterms:modified'])) $do['dcterms:modified'] = $o['dcterms:modified'];
+              if (!empty($o['dc:title'])) $do['dc:title'] = $o['dc:title'];
+              if (!empty($o['dc:language'])) $do['dc:language'] = $o['dc:language'];
+              if (!empty($o['license'])) $do['license'] = $o['license'];
+              if (!empty($o['dc:rights'])) $do['dc:rights'] = $o['dc:rights'];
+              if (!empty($o['dcterms:rightsHolder'])) $do['dcterms:rightsHolder'] = $o['dcterms:rightsHolder'];
+              if (!empty($o['dcterms:bibliographicCitation'])) $do['dcterms:bibliographicCitation'] = $o['dcterms:bibliographicCitation'];
+              if (!empty($o['audiences'])) $do['audiences'] = $o['audiences'];
+              if (!empty($o['dc:source'])) $do['dc:source'] = $o['dc:source'];
+              if (!empty($o['subject'])) $do['subject'] = $o['subject'];
+              if (!empty($o['dc:description'])) $do['dc:description'] = $o['dc:description'];
+              if (!empty($o['mediaURL'])) $do['mediaURL'] = $o['mediaURL'];
+              if (!empty($o['thumbnailURL'])) $do['thumbnailURL'] = $o['thumbnailURL'];
+              if (!empty($o['location'])) $do['location'] = $o['location'];
+              if (!empty($o['geo:Point'])) $do['geo:Point'] = $o['geo:Point'];
+              if (!empty($o['reference'])) $do['reference'] = $o['reference'];
+  
+              $taxon['data_objects'][] = $do;
+            }
+          }
+        }
+
+        // Merge results
+        $context['results']['taxa'][$nid] = $taxon;
+        unset($taxon);
+      }
+      
+      // Update progress
+      $counter++;
+      $context['sandbox']['progress']++;
+      // Remove row so don't process it again
+      unset($context['sandbox']['taxa_data'][$nid]);
+      // Limit reached, exit out of foreach
+      if ($counter == $limit) break;
+    }
+  }
+  // Check whether processing should finish
+  // Assign proportion completed to finished - anything less than 1 will continue processing, else process will finish
+  if ($context['sandbox']['max'] != 0) {
+    $context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
+  }
+  else {
+    $context['finished'] = 1;
+  }
+}
+/**
+ * Finished handler for batch generate xml
+ */
+function _eol_partnership_generate_xml_finished($success, $results, $operations) {
+  if ($success) {
+    $message = format_plural(count($results), 'One row processed in !time seconds.', '@count rows processed in !time seconds.');
+    // watchdog('eol_partnership', $message, array('!time' => microtime(TRUE) - $results['time']), WATCHDOG_NOTICE);
+  }
+  else {
+    $message = t('Finished with an error.');
+    watchdog('eol_partnership', $message, array(), WATCHDOG_ERROR);
+  }
+  $_SESSION['eol_partnership_batch_results'] = $results;
+}
+/**
+ * Batch process row
+ */
+function _eol_partnership_process_row($rows, $headers, $scientific_name_field, $taxon_nid_field = NULL, $secondary_scientific_name_field = NULL, $language_field = NULL, &$context) {
+  global $base_url;
+  // Set limit for number of rows to process at a time, could remove it and have function just do one row
+  $limit = 1;
+  // Initialise sandbox if doesn't exist 
+  if (!isset($context['sandbox']['progress'])) {
+    $context['sandbox']['progress'] = 0;
+    $context['sandbox']['max'] = count($rows);
+  }
+  // Store rows in context so can 'tick off' rows as they are processed
+  if (!isset($context['sandbox']['rows'])) {
+    $context['sandbox']['rows'] = $rows;
+    unset($rows);
+  }
+  // Initialize time tracking
+  if (!isset($context['results']['time'])) {
+    $context['results']['time'] = microtime(TRUE);
+  }
+  // Uncomment following line for debugging timeouts
+  // $start = microtime(TRUE);
+  if (!isset($context['results']['nids'])) {
+    $context['results']['nids'] = array();
+  }
+  $counter = 0;
+  // Process rows
+  if (!empty($context['sandbox']['rows'])) {
+    if (isset($context['results']['taxa'])) {
+      $taxa = $context['results']['taxa'];
+      unset($context['results']['taxa']);
+    }
+    else {
+      $taxa = array();
+    }
+    
+    foreach ($context['sandbox']['rows'] as $count => $row) {
+      // Stop when reach limit
+      if ($counter < $limit) {
+        // Continue processing only if scientific name field or secondary referenced taxon field exists
+        if ((!empty($scientific_name_field) && !empty($row[$scientific_name_field])) || (!empty($secondary_scientific_name_field) && !empty($row[$secondary_scientific_name_field]))) {
+          // Continue processing only if not duplicate nid, i.e. if node has not already been processed (might lose some data here, we're assuming view is fairly simple, or multiple value fields have been grouped)
+          if (!in_array($row['nid'], $context['results']['nids'])) {
+            // Process row
+            $taxon_nid = '';
+            $do = FALSE;
+            $data_objects = array();
+            $shared = array();
+            $captions = array();
+            
+            $context['results']['nids'][] = $row['nid'];
+            
+            // Store node id of taxon node, typically will be node yielding the row nid, but can be overridden by a referenced node
+            $taxon_nid = $row['nid'];
+            // Override taxon_nid if secondary nid exists and current nid scientific name field is empty or matches referenced node
+            if ((!empty($taxon_nid_field) && !empty($row[$taxon_nid_field])) && (!empty($secondary_scientific_name_field) && !empty($row[$secondary_scientific_name_field]))) { // Suggests taxon will be derived from node reference field
+              if (empty($row[$scientific_name_field]) || (trim($row[$scientific_name_field]) == trim($row[$secondary_scientific_name_field]))) {
+                $taxon_nid = $row[$taxon_nid_field];
+                $do = TRUE;
+                // Assign scientific name to primary dwc:ScientificName field
+                $row[$scientific_name_field] = $row[$secondary_scientific_name_field];
+                // Remove secondary scientific name field
+                unset($row[$secondary_scientific_name_field]);
+              } else {
+                // Primary scientific name field has a value and its different from secondary field - implies node is independent taxon
+                // Remove secondary scientific name field, not applicable
+                unset($row[$secondary_scientific_name_field]);
+              }
+            }
+            // Store default dc:identifier for taxon, it can be overridden later if present in view result
+            if (!isset($taxa[$taxon_nid]['dc:identifier'])) $taxa[$taxon_nid]['dc:identifier'] = '<dc:identifier>' . str_replace('http://', '', $base_url) .':node.' . $taxon_nid .'</dc:identifier>';
+            // Get node language
+            $language = '';
+            if (!empty($language_field) && !empty($row[$language_field])) {
+              $language = _eol_partnership_validate_lang($row[$language_field]);
+              if (!empty($language)) $language = ' xml:lang="' .$language .'"';
+            }
+            
+            // Process each field and add to taxon and data objects arrays
+            $field_count = 0;
+            foreach ($row as $field => $content) {
+              if (!empty($content)) {
+                // $content = html_entity_decode($content);
+                $label = html_entity_decode($headers[$field]);
+                $attributes = split(' ', $label);
+                $start_tag = '<' .$label .'>';
+                $end_tag = '</' .$attributes[0] .'>';
+                if (preg_match('#^[&]lt;div class="field-item field-item-0"[&]gt;#i', $content)) {
+                  // De-theme content if it's a multi value field, assumes standard CCK theme_content_view_multiple_field
+                  // TODO: Create view/theme handler to override default behaviour
+                  // Returns array
+                  $content = _eol_partnership_split_content_multi_values($content);
+                } else {
+                  // Convert single value into array for consistent handling
+                  $content = array($content);
+                }
+                // Assign fields to vars depending on field label
+                foreach ($content as $i => $v) {
+                  // Clean up value
+                  $v = _eol_partnership_clean_up($v);
+                  switch (TRUE) {
+                    case (preg_match('#^dwc:NomenclaturalCode#i', $label) && !empty($v)):
+                      // EOL Schema doesn't currently support dwc:NomenclaturalCode
+                      // $v = _eol_partnership_validate_nomenclatural_code($v);
+                      // if ($v) $taxa[$taxon_nid][$label] = $start_tag .$v .$end_tag;
+                      break;
+                    case (preg_match('#^(dwc:)#i', $label) && !empty($v)):
+                      $v = html_entity_decode($v);
+                      $v = filter_xss($v, array());
+                      if ($do === FALSE || ($do === TRUE && empty($taxa[$taxon_nid][$label]))) $taxa[$taxon_nid][$label] = $start_tag .$v .$end_tag;
+                      break;
+                    case (preg_match('#^(synonym|reference)#i', $label) && !empty($v)):
+                      $v = html_entity_decode($v);
+                      $v = filter_xss($v, array());
+                      $taxa[$taxon_nid][$label][] = $start_tag .$v .$end_tag;
+                      break;
+                    case (preg_match('#^(commonName)#i', $label) && !empty($v)):
+                      // Extract language from string
+                      $items = array();
+                      $items = _eol_partnership_extract_lang($v);
+                      foreach ($items as $item) {
+                        $st = $start_tag;
+                        if (!empty($item['lang'])) $st = str_replace('>', ' xml:lang="'.$item['lang'] .'">', $st);
+                        if (!empty($item['name'])) $taxa[$taxon_nid][$label][] = $st .$item['name'] .$end_tag;
+                      }
+                      unset($items);
+                     break;
+                    case (preg_match('#^(dc:identifier|dcterms:created|dcterms:modified)#i', $label) && !empty($v)):
+                      // Add data object elements to taxon array if they don't exist, they will be later overridden by taxon page node, if it is present in view
+                      if ($do === FALSE || ($do === TRUE && empty($taxa[$taxon_nid][$label]))) $taxa[$taxon_nid][$label] = $start_tag .$v .$end_tag;
+                      $shared[$label] = $start_tag .$v .$end_tag;
+                      break;
+                    case (preg_match('#^(dc:source)#i', $label) && !empty($v)):
+                      if ($v = _eol_partnership_extract_url($v)) {
+                        if ($do === FALSE) $taxa[$taxon_nid][$label] = $start_tag .$v .$end_tag;
+                        $shared[$label] = $start_tag .$v .$end_tag;
+                      }
+                      break;
+                    case (preg_match('#^(license)#i', $label) && !empty($v)):
+                      $v = _eol_partnership_convert_license($v);
+                      $shared[$label] = $start_tag .$v .$end_tag;
+                      break;
+                    case (preg_match('#^(dc:rights|license|dcterms:[a-z]*|dc:description)#i', $label) && !empty($v)):
+                      $shared[$label] = $start_tag .$v .$end_tag;
+                      break;
+                    case (preg_match('#^(dc:description)#i', $label) && !empty($v)):
+                      if (!empty($language)) $start_tag = str_replace('>', $language .'>', $start_tag);
+                      $shared[$label] = $start_tag .$v .$end_tag;
+                      break;
+                    case (preg_match('#^(audience)#i', $label) && !empty($v)):
+                      $shared['audiences'][] = $start_tag .$v .$end_tag;
+                      break;
+                    case (preg_match('#^(agent role)#i', $label) && !empty($v)):
+                      $pos = 0;
+                      if ($pos = strpos($v, '|')) { // Relevant if added custom views field to pull in full and given names from content profile node type -format of $v is username|given name full name
+                        // TODO: Add users URL
+                        /* Uncomment the following if want to automatically add username from custom field in view
+                        if ($pos != strlen($v) - 1) {
+                          // Suggests full and given name fields exist so remove username
+                          $v = substr($v, $pos + 1, strlen($v) - ($pos + 1));
+                        } else {
+                          // Remove pipe and just use username
+                          $v = trim(str_replace('|', ' ', $v));
+                        }*/
+                        // Comment out the following if want to auto add username from custom field in view
+                        $v = '';
+                      }
+                      unset($pos);
+                      if (!empty($v)) $shared['agents'][] = $start_tag .$v .$end_tag;
+                      break;
+                    case (preg_match('#^spmi:#i', $label) && !empty($v)):
+                      $data_objects[str_replace(':', '.', $label)] = array(
+                        'dataType' => array('<dataType>http://purl.org/dc/dcmitype/Text</dataType>'),
+                        //TO DO: Figure out how to allow custom titles -labels from CCK fields?: 'dc:title' => array('<dc:title>' .str_replace('spmi:', '', $label) .'</dc:title>'),
+                        'subject' => array('<subject>' .str_replace('spmi:', 'http://rs.tdwg.org/ontology/voc/SPMInfoItems#', $label) .'</subject>'),
+                        'dc:description' => array('<dc:description' . $language .'>' .$v .'</dc:description>'),
+                      );
+                      break;
+                    case (preg_match('#^mediaURL#i', $label) && !empty($v)):
+                      $data_objects['file.' . $row['fid']] = array(
+                        'dataType' => '<dataType>' . _eol_partnership_get_data_type($row['filemime']) .'</dataType>',
+                        'mimeType' => '<mimeType>' .$row['filemime'] .'</mimeType>',
+                        'mediaURL' => $start_tag .$v .$end_tag,
+                      );
+                      break;
+                    case (preg_match('#^geo:Point#i', $label) && !empty($v)):
+                      $geo_points = _eol_partnership_convert_wkt($v);
+                      if (is_array($geo_points)) {
+                        foreach ($geo_points as $geo_point) {
+                          $shared[$label][] = $start_tag
+                                            . '<geo:lat>' . $geo_point['geo:lat'] .'</geo:lat>'
+                                            . '<geo:long>' . $geo_point['geo:long'] .'</geo:long>'
+                                            . $end_tag;
+                        }
+                      }
+                    default:
+                      break;
+                  } // end switch label matches
+                } // end foreach multi value fields
+              } // end if content not empty
+              unset($content);
+              $field_count++;
+            } // end foreach field
+            unset($language);
+            if (count($data_objects) > 0) {
+              // Add 'shared' elements to each object
+              foreach ($data_objects as $label => $object) {
+                $data_objects[$label] = array_merge($object, $shared);
+                // Add identifier to data object if one doesn't exist
+                if (empty($object['dc:identifier'])) $data_objects[$label]['dc:identifier'] = '<dc:identifier>' . str_replace('http://', '', $base_url) .':node.' . $row['nid'] .':' . $label .'</dc:identifier>';
+              }
+              // Add data objects to taxa
+              $taxa[$taxon_nid]['data_objects'][] = $data_objects;
+            }
+            unset($shared);
+            unset($data_objects);
+          }
+        }
+        // Update progress
+        $counter++;
+        $context['sandbox']['progress']++;
+        // Remove row so don't process it again
+        unset($context['sandbox']['rows'][$count]);
+        // Limit reached, exit out of foreach
+        if ($counter == $limit) break;
+      }
+    } // End foreach row
+    // Merge results
+    $context['results']['taxa'] = $taxa;
+    unset($taxa);
+  }
+  // Check whether processing should finish
+  // Assign proportion completed to finished - anything less than 1 will continue processing, else process will finish
+  if ($context['sandbox']['max'] != 0) {
+    $context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
+  }
+  else {
+    $context['finished'] = 1;
+  }
+  
+  // Uncomment following for debugging timeouts
+  // $elapsed = (microtime(TRUE) - $start);
+  // print $elapsed;
+}
+/**
+ * Finished handler for batch process row
+ */
+function _eol_partnership_process_row_finished($success, $results, $operations) {
+  if ($success) {
+    $message = format_plural(count($results), 'One row processed in !time seconds.', '@count rows processed in !time seconds.');
+    // watchdog('eol_partnership', $message, array('!time' => microtime(TRUE) - $results['time']), WATCHDOG_NOTICE);
+  }
+  else {
+    $message = t('Finished with an error.');
+    watchdog('eol_partnership', $message, array(), WATCHDOG_ERROR);
+  }
+  $_SESSION['eol_partnership_batch_results'] = $results;
+}
+/**
+ * Helper function to split themed multi-value content fields from string.
+ * 
+ * Assumes default content theme theme_content_view_multiple_field is being used of the format:
+ * <div class="field-item field-item-0">Value 1</div>
+ */
+function _eol_partnership_split_content_multi_values($content) {
+  $items = split('&lt;div class="field-item', $content);
+  foreach ($items as $i => $item) {
+    if (empty($item)) {
+      unset($items[$i]);
+      continue;
+    } 
+    $pos = stripos($item, '&gt;');
+    $items[$i] = substr($item, $pos + 4, strlen($item) - ($pos + 16));
+  }
+  return $items;
+}
+/**
+ * Helper function to clean up data
+ */
+function _eol_partnership_clean_up($v) {
+  // template_preprocess_views_bonus_export_xml double encodes & for anything other than amp|quot|#039|lt|gt so need to tidy up:
+  $find = array(
+    '&amp;nbsp;',
+    '&nbsp;',
+    '&amp;shy;',
+    '&shy;'
+  );
+  $replace = array(
+    ' ',
+    ' ',
+    '',
+    '',
+  );
+  $v = str_ireplace($find, $replace, $v);
+  $v = preg_replace('#[\r\n\t\x0B\001-\020]#', ' ', $v); //Replace control characters ^A (\001), ^G (\007), ^H (\008), ^P (\020) using octal values http://www.robelle.com/smugbook/ascii.html
+  $v = trim($v);
+  return $v;
+}
+/**
+ * Helper function to extract language from common name strings
+ * $string : should be in format "Common Name [lang]"
+ */
+function _eol_partnership_extract_lang($string) {
+  $items = array();
+  if (preg_match('#\[[ ]*([,]?[a-z]{2,3}[,]?)*[ ]*\]#i', $string, $matches)) {
+    $langs = trim(substr($matches[0], 1, strlen($matches[0]) - 2));
+    $langs = explode(',', $langs);
+    foreach ($langs as $lang) {
+      $item = array();
+      $item['lang'] = _eol_partnership_validate_lang($lang);
+      $item['name'] = trim(str_ireplace($matches[0], '', $string));
+      $item['name'] = html_entity_decode($item['name']);
+      $item['name'] = filter_xss($item['name'], array());
+      $items[] = $item; 
+    }
+  } else {
+    $item = array();
+    $item['lang'] = '';
+    $item['name'] = $string;
+    $item['name'] = html_entity_decode($item['name']);
+    $item['name'] = filter_xss($item['name'], array());
+    $items[] = $item;
+  }
+  return $items;
+}
+/**
+ * Helper function to validate language codes
+ * @see http://www.loc.gov/standards/iso639-2/ascii_8bits.html
+ * @see http://www.loc.gov/standards/iso639-2/ISO-639-2_utf-8.txt
+ */
+function _eol_partnership_validate_lang($lang) {
+  // TODO: ? Update language code file on cron from http://www.loc.gov/standards/iso639-2/ISO-639-2_utf-8.txt
+  $file_name = drupal_get_path('module', 'eol_partnership') .'/includes/ISO-639-2_utf-8.txt';
+  $languages = file($file_name);
+  // Line headers: alpha-3 (bibliographic) code | alpha-3 (terminologic) code | alpha-2 code (when given) | an English name | a French name
+  if (!empty($languages)) {
+    foreach ($languages as $line_num => $line_content) {
+      $language = array();
+      $language = explode('|', $line_content);
+      if ($lang == $language[2]) return $lang;
+      if (($lang == $language[0] || $lang == $language[1] || $lang == $language[3]) && !empty($language[2])) return $language[2];
+    }
+  } 
+  return '';
+}
+/**
+ * Helper function to extract data type given mime type
+ * http://purl.org/dc/dcmitype/MovingImage
+ * http://purl.org/dc/dcmitype/Sound
+ * http://purl.org/dc/dcmitype/StillImage
+ * http://purl.org/dc/dcmitype/Text
+ */
+function _eol_partnership_get_data_type($mime_type) {
+  switch (TRUE) {
+    case preg_match('#^image/#i', $mime_type):
+      $data_type = 'http://purl.org/dc/dcmitype/StillImage';
+      break;
+    case preg_match('#^video/#i', $mime_type):
+      $data_type = 'http://purl.org/dc/dcmitype/MovingImage';
+      break;
+    case preg_match('#^audio/#i', $mime_type):
+      $data_type = 'http://purl.org/dc/dcmitype/Sound';
+      break;
+    case preg_match('#^text/#i', $mime_type):
+      $data_type = 'http://purl.org/dc/dcmitype/Text';
+      break;
+    default:
+      $data_type = '';
+      break;
+  }
+  return $data_type;
+}
+/**
+ * Helper function to extract data and mime types from mediaURL value
+ */
+function _eol_partnership_get_media_types($mediaURL) {
+  $item = array();
+  $mime_type = file_get_mimetype($mediaURL);
+  $item['mime_type'] = $mime_type;
+  $item['data_type'] = _eol_partnership_get_data_type($mime_type);
+  return $item; 
+}
+/** 
+ * Helper function to convert license string to URL
+ */
+function _eol_partnership_convert_license($license) {
+  $licenses = array(
+    'Public Domain Dedication' => 'http://creativecommons.org/licenses/publicdomain/',
+    'Attribution' => 'http://creativecommons.org/licenses/by/3.0/',  
+    'Attribution Non‐commercial' => 'http://creativecommons.org/licenses/by-nc/3.0/',
+    'Attribution Share Alike' => 'http://creativecommons.org/licenses/by-sa/3.0/',
+    'Attribution Non‐commercial Share Alike' => 'http://creativecommons.org/licenses/by-nc-sa/3.0/',
+  );
+  return (!empty($licenses[$license])) ? $licenses[$license] : $license;
+}
+/**
+ * Helper function to validate nomenclatural code values
+ */
+function _eol_partnership_validate_nomenclatural_code($code) {
+  $codes = array('ICBN', 'ICZN', 'ICNCP', 'ICNB');
+  foreach ($codes as $acronym) {
+    if (preg_match('/(' . $acronym .')+/i', $code)) return $acronym;
+  }
+  return FALSE;
+}
+/**
+ * Helper function to convert WKT point value representation to lat and long array. 
+ */
+function _eol_partnership_convert_wkt($wkt) {
+  $re_point = '#POINT\([-+0-9. ]+\)#i';
+  preg_match($re_point, $wkt, $matches);
+  if (count($matches) > 0) {
+    $geo_points = array();
+    foreach($matches as $point) {
+      $point = str_ireplace('point(', '', $point);
+      $point = str_ireplace(')', '', $point);
+      $point = explode(' ', $point);
+      $points = array(
+        'geo:long' => $point[0],
+        'geo:lat' => $point[1],
+      );
+      $geo_points[] = $points;
+    }
+    return $geo_points;
+  }
+  else {
+    return NULL;
+  }
+}
+/**
+ * Helper function to extract URL from a tag
+ */
+function _eol_partnership_extract_url($s) {
+  preg_match('@href=".+"@i', $s, $matches);
+  if (!empty($matches[0])) {
+    $path = substr($matches[0], 7, strlen($matches[0]) - 8);
+    return url($path, array('absolute' => TRUE));
+  }
+  return FALSE;
+}
+/**
+ * Helper function to establish if EOL API is functional
+ * 
+ * @return
+ * Boolean TRUE if EOL API is available, FALSE if EOL API is unavailable
+ */
+function _eol_partnership_api_ping() {
+  $api_method = EOL_API_BASE_URL .'ping';
+  $data = _eol_partnership_api_fetch_xml_data($api_method);
+  if ($data->message == 'Success') {
+    return TRUE;
+  }
+  return FALSE;
+}
+
+/**
+ * Helper function to fetch data from a given url
+ * 
+ * @param $url
+ * URL for API method
+ * 
+ * @return
+ * SimpleXML object
+ */
+function _eol_partnership_api_fetch_xml_data($url) {
+  // Fetch response
+  $http_result = drupal_http_request($url);
+  // Check response is okay, if not return false
+  if ($http_result->code != 200) { // TODO: Handle redirect codes
+    $message = 'Unexpected response from %url: %error';
+    $replace = array('%url' =>  $url, '%error' => $http_result->error);
+    // watchdog('eol_partnership', $message, $replace, WATCHDOG_WARNING);
+    return FALSE;
+  } else {
+    // Response if 200, get data
+    $data = simplexml_load_string($http_result->data);
+    // Check data is okay if not return false
+    if ($data === FALSE) {
+      $message = "Error parsing response from %url";
+      $replace = array('%url' => $url);
+      // watchdog('eol_partnership', $message, $replace, WATCHDOG_WARNING);
+      return FALSE;
+    } else {
+      // Data is okay return data
+      return $data;
+    }
+  }
+
+}

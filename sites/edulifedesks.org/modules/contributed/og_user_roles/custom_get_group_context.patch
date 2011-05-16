@@ -1,0 +1,19 @@
+Index: og_user_roles.module
+===================================================================
+--- og_user_roles.module	(revision 3098)
++++ og_user_roles.module	(working copy)
+@@ -133,6 +133,14 @@
+   if (!isset($group_node)) {
+     $group_node = og_get_group_context();
+   }
++  
++  // lwalley - OG hasn't set context yet so OGUR can't use it. OGUR runs its own function to 
++  // determine context based on OGs function but both require arg(0) to be 'og'.
++  // Run our own function here to set context for edulifedesks as needed.
++  if (!isset($group_node)) {
++    $group_node = _edulifedesks_alter_get_group_context();
++  }
++  
+   // Assign additional user roles to current user (if any).
+   og_user_roles_grant_roles($user, $group_node);
+ }

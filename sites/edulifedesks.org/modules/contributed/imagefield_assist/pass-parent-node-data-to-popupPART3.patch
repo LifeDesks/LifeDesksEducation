@@ -1,0 +1,22 @@
+Index: imagefield_assist_popup.js
+===================================================================
+--- imagefield_assist_popup.js  (revision 2898)
++++ imagefield_assist_popup.js  (working copy)
+@@ -7,7 +7,16 @@
+ }
+ 
+ function onClickUpload() {
+-  frames['imagefield_assist_main'].window.location.href = Drupal.settings.basePath + 'index.php?q=imagefield_assist/upload';
++  var referrer_url = document.referrer.split("/");
++  var parent_nid = 0;
++  var group_nid = 0;
++  if (referrer_url[3] == 'class' && parseInt(referrer_url[6])) {
++    parent_nid = referrer_url[6];
++    if (parseInt(referrer_url[4])) { group_nid = referrer_url[4] };
++  } else if (referrer_url[3] == 'node' && parseInt(referrer_url[4])) {
++    parent_nid = referrer_url[4];
++  }
++  frames['imagefield_assist_main'].window.location.href = Drupal.settings.basePath + 'index.php?q=imagefield_assist/upload/' + parent_nid + '/' + group_nid;
+ }
+ 
+ function onClickCrop(fid) {

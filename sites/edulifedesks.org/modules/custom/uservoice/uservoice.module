@@ -1,0 +1,270 @@
+<?php
+// $Id$
+/**
+ * @file
+ * Module for specifying and interacting with a Uservoice account.
+ * This module adds a Uservoice feedback widget and provides single sign on for logged in users.
+ * @see http://uservoice.com
+ */
+
+/**
+ * Implementation of hook_help()
+ */
+function uservoice_help($path, $arg) {
+  if ($path == 'admin/help#uservoice') {
+    $txt = 'The !url module adds a Uservoice feedback widget and provides single sign on for logged in users.';
+    $link = l('Uservoice', 'http://www.uservoice.com');
+    $replace = array(
+      '!url' => $link
+    );
+    return '<p>'. t($txt, $replace) .'</p>';
+  }
+}
+/**
+ * Implementation of hook_init()
+ */
+function uservoice_init() {
+  drupal_add_js(drupal_get_path('module', 'uservoice') .'/uservoice.js', 'module', 'footer');
+  $account_key = variable_get('uservoice_account_key', '');
+  $api_key = variable_get('uservoice_api_key', '');
+  if(!isset($_SESSION['uservoice_sso_token']) && $account_key != '' && $api_key != '') {
+    $_SESSION['uservoice_sso_token'] = _uservoice_generate_encrypted_sso($account_key, $api_key);
+    // Insert menu item if variable settings exist
+    $mlid = _uservoice_update_menu_item();
+  }
+}
+/**
+ * Implementation of hook_user()
+ */
+function uservoice_user($op, &$edit, &$user) {
+  $account_key = variable_get('uservoice_account_key', '');
+  $api_key = variable_get('uservoice_api_key', '');
+  switch ($op) {
+    case 'register':
+    case 'login':
+    case 'logout':
+    case 'after_update':
+      $_SESSION['uservoice_sso_token'] = _uservoice_generate_encrypted_sso($account_key, $api_key);
+      $mlid = _uservoice_update_menu_item();
+    break;
+  }
+}
+/**
+ * Implementation of hook_footer
+ */
+function uservoice_footer($main=0) {
+  //Add Uservoice javascript
+  $account_key = variable_get('uservoice_account_key', '');
+  $forum_id = variable_get('uservoice_forum_id', '');
+  $sso_token = $_SESSION['uservoice_sso_token'];
+  $uservoice_script = '<script type="text/javascript">
+    var uservoiceOptions = {
+      key: "' .$account_key .'",
+      host: "' .$account_key .'.uservoice.com", 
+      forum: "' .$forum_id .'",
+      lang: "en",
+      showTab: false,
+      params: { sso: "' .$sso_token .'" }
+    };
+    function _loadUserVoice() {
+      var s = document.createElement("script");
+      s.src = ("https:" == document.location.protocol ? "https://" : "http://") + "cdn.uservoice.com/javascripts/widgets/tab.js";
+      document.getElementsByTagName("head")[0].appendChild(s);
+    }
+    _loadSuper = window.onload;
+    window.onload = (typeof window.onload != "function") ? _loadUserVoice : function() { _loadSuper(); _loadUserVoice(); };
+  </script>';
+  return $uservoice_script;
+}
+/**
+ * Implementation of hook_perm()
+ */
+function uservoice_perm() {
+  return array('administer uservoice');
+}
+/**
+ * Implementation of hook_menu
+ */
+function uservoice_menu() {
+  $items['admin/settings/uservoice'] = array(
+    'title' => 'Uservoice',
+    'description' => 'Configure your Uservoice account settings',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('uservoice_settings'),
+    'access arguments' => array('administer uservoice'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+  // Insert/update Feedback menu link
+  $mlid = _uservoice_update_menu_item();
+  if ($mlid < 1) drupal_set_message(t('Feedback menu item has not been created, update Uservoice settings in admin/settings/uservoice, or inform your site administrator.'), 'warning', FALSE);
+  return $items;
+}
+/**
+ * Page callback for Uservoice settings
+ */
+function uservoice_settings() {
+  $api_key = check_plain(variable_get('uservoice_api_key', ''));
+  $account_key = check_plain(variable_get('uservoice_account_key', ''));
+  $forum_id = check_plain(variable_get('uservoice_forum_id', '')); 
+ 
+  // Insert or update Uservoice menu item
+  $mlid = _uservoice_update_menu_item();
+  
+  $form = array();
+  $form['uservoice_account_key'] = array (
+    '#type' => 'textfield',
+    '#title' => t('Uservoice account key'),
+    '#default_value' => $account_key,
+    '#description' => t("Enter your Uservoice account key."),
+    '#size' => 40,
+    '#maxlength' => 100,
+    '#required' => TRUE,
+  );
+  $form['uservoice_api_key'] = array (
+    '#type' => 'textfield',
+    '#title' => t('Uservoice API key'),
+    '#default_value' => $api_key,
+    '#description' => t('Enter your Uservoice api key. Don\'t disclose to end users.'),
+    '#size' => 40,
+    '#maxlength' => 40,
+    '#required' => TRUE,
+  );
+  $form['uservoice_forum_id'] = array (
+    '#type' => 'textfield',
+    '#title' => t('Uservoice forum id'),
+    '#default_value' => $forum_id,
+    '#description' => t('Enter the numerical id of the forum you want to access, e.g. 123456.'),
+    '#size' => 10,
+    '#maxlength' => 10,
+    '#required' => FALSE,
+  );
+  $form['uservoice_override_validation'] = array (
+    '#type' => 'checkbox',
+    '#title' => t('Override validation rules?'),
+    '#default_value' => variable_get('uservoice_override_validation', 0),
+    '#description' => t('Select to override validation rules for these settings. You may need to override validation rules set here if, Uservoice alters the allowed formats for these settings, and your values differ from the default formats expected here.'),
+    '#required' => FALSE,
+  );
+  return system_settings_form($form);
+}
+/**
+ * Validation function for Uservoice settings form
+ */
+function uservoice_settings_validate($form, &$form_state) {
+  if ($form_state['values']['uservoice_override_validation'] == 0) {
+    $account_key = $form_state['values']['uservoice_account_key'];
+    if (!preg_match('/^[a-z0-9]+$/', $account_key)) {
+      form_set_error('uservoice_account_key', t('Your Uservoice account key should contain lowercase letters [a-z] and numbers [0-9] only.'));
+    }
+    $api_key = $form_state['values']['uservoice_api_key'];
+    if (!preg_match('/^[a-z0-9]+$/', $api_key)) {
+      form_set_error('uservoice_api_key', t('Your Uservoice API key should contain lowercase letters [a-z] and numbers [0-9] only.'));
+    }  else if (strlen($api_key) <> 32) {
+      form_set_error('uservoice_api_key', t('Your Uservoice API key should be 32 characters in length.'));
+    }
+    $forum_id = $form_state['values']['uservoice_forum_id'];
+    if (!preg_match('/^[0-9]+$/', $forum_id)) {
+      form_set_error('uservoice_forum_id', t('Your Uservoice forum id should only contain numbers [0-9].'));
+    }
+  }
+}
+
+/**
+ * Insert or update Uservoice Feedback menu item
+ * @return INTEGER mlid
+ */
+function _uservoice_update_menu_item() {
+  // Update mlid when first save menu item, and then resave with updates 
+  $mlid = variable_get('uservoice_feedback_mlid', 0);
+  $link_path = _uservoice_build_url();
+  if ($link_path != NULL) {
+    $item = array(
+      'link_path' => $link_path,
+      'link_title' => 'Feedback',
+      'menu_name' => 'secondary-links',
+      'options' => array('attributes' => array('class' => 'uservoice-feedback')),
+      'mlid' => $mlid,
+    );
+    variable_set('uservoice_feedback_mlid', menu_link_save($item));
+  }
+  return variable_get('uservoice_feedback_mlid', 0);
+}
+/**
+ * Generates Uservoice Feedback link
+ */
+function _uservoice_build_url() {
+  global $user;
+  $api_key = check_plain(variable_get('uservoice_api_key', ''));
+  $account_key = check_plain(variable_get('uservoice_account_key', ''));
+  $forum_id = check_plain(variable_get('uservoice_forum_id', ''));
+  if ($api_key != '' && $account_key != '') {
+    isset($_SESSION['uservoice_sso_token']) ? $sso_token = $_SESSION['uservoice_sso_token'] : $sso_token = _uservoice_generate_encrypted_sso($account_key, $api_key);
+    (isset($sso_token) && $sso_token != NULL) ? $sso = '?sso=' .$sso_token : $sso = '';
+    return 'http://' .$account_key .'.uservoice.com/pages/' .$forum_id .$sso;
+  }
+  return NULL;
+}
+/**
+ * Generate encrypted data for single sign-on to Uservoice
+ * 
+ * Requires mcrypt extension for PHP
+ * @see http://php.net/mcrypt
+ * 
+ * @param $uservoice_account_key
+ * String containing Uservoice account key (same as account name or subdomain)
+ * 
+ * @param $uservoice_api_key
+ * String containing Uservoice api key.
+ */
+function _uservoice_generate_encrypted_sso($account_key, $api_key) {
+  global $user;
+  if($user->uid && $account_key != '' && $api_key != '') {
+    $salted = $api_key . $account_key;
+    $hash = hash('sha1',$salted,true);
+    $saltedHash = substr($hash,0,16);
+    $iv = "OpenSSL for Ruby";
+    $expiration_timestamp = _uservoice_expiration_timestamp(30);
+    $user_data = array(
+     "expiration" => $expiration_timestamp,
+     "guid" => $user->uid .$_SERVER['SERVER_NAME'],
+     "display_name" => $user->name,
+     "email" => $user->mail,
+     "url" => "http://".$_SERVER["SERVER_NAME"]."/user/".$user->uid
+    );
+    
+    $data = json_encode($user_data);
+    
+    // double XOR first block
+    for ($i = 0; $i < 16; $i++)
+    {
+     $data[$i] = $data[$i] ^ $iv[$i];
+    }
+    
+    $pad = 16 - (strlen($data) % 16);
+    $data = $data . str_repeat(chr($pad), $pad);
+      
+    $cipher = mcrypt_module_open(MCRYPT_RIJNDAEL_128,'','cbc','');
+    mcrypt_generic_init($cipher, $saltedHash, $iv);
+    $encrypted_data = mcrypt_generic($cipher,$data);
+    mcrypt_generic_deinit($cipher);
+    
+    $encrypted_data = urlencode(base64_encode($encrypted_data));
+    return $encrypted_data;
+  }
+  return NULL;
+}
+
+/**
+ * Generate expiration timestamp
+ * Uservoice requires expration timestamp in GMT of format Y-M-D H:i:s
+ * 
+ * @param $duration
+ * Time in minutes from now until expiration default 10 minutes
+ */
+function _uservoice_expiration_timestamp($duration=10) {
+  //uservoice requires date in GMT of format Y-M-D H:i:s
+  $format = "Y-m-d H:i:s";
+  $expiration_timestamp = time() + ($duration * 60);
+  $gmt_expiration = gmdate($format,$expiration_timestamp);
+  return $gmt_expiration;
+}

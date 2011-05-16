@@ -1,0 +1,8 @@
+; $Id$
+name = Education LifeDesks Help Tips
+description = Adds help tips for using Education LifeDesks (not stand alone module, has dependencies on content types not defined within the module code).
+package = Education LifeDesks
+dependencies[] = content_copy
+dependencies[] = views 
+core = 6.x
+version = "6.x-1.0"

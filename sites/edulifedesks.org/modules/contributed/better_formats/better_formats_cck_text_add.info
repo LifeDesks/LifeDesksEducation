@@ -1,0 +1,7 @@
+; $Id: better_formats_cck_text_add.info
+
+name = Better Formats additional CCK text widgets
+description = "Adds better format functionality to individual CCK textfields by providing a new text widget"
+core = 6.x
+dependencies[] = text
+dependencies[] = better_formats

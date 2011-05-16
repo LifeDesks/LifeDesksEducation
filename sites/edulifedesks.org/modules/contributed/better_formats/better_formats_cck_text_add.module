@@ -1,0 +1,292 @@
+<?php
+// $Id: better_formats_cck_text_add.module
+
+/**
+ * @file
+ * Enhances better format to CCK textfields.
+ *
+ * Allows setting of defaults per role and content type, 
+ * controls format display options, works with CCK fields.
+ */
+ 
+/**
+ * Implementation of hook_form_alter().
+ */
+function better_formats_cck_text_add_form_alter(&$form, $form_state, $form_id) {
+  
+  if ($form_id == 'content_field_edit_form' && $form['type']['#value'] == 'text' && 
+      ($form['#field']['widget']['type'] == 'text_textarea_better_formats' || $form['#field']['widget']['type'] == 'text_textfield_better_formats')) {
+    better_formats_cck_text_add_text_widget_form($form, $form_state);
+    
+    // Text_processing must be set to 1 as there is no point using better formats if you are not using filtered text
+    // Could hide the field but leaving it probably makes the field more like the normal cck text field
+    $form['field']['text_processing']['#default_value'] = 1;
+    unset($form['field']['text_processing']['#options'][0]);
+  }
+}
+
+/**
+ * FAPI form to add to the content field edit form
+ * 
+ * @see better_formats_cck_text_add_text_widget_form_validate()
+ * @see better_formats_cck_text_add_text_widget_form_submit()
+ */
+function better_formats_cck_text_add_text_widget_form(&$form, $form_state) {
+  // Add JS to enhance form.
+  drupal_add_js(drupal_get_path('module', 'better_formats') . '/better_formats_node_type_form.js');
+  $node_type = $form['#field']['type_name'];
+  $field_name = $form['#field']['field_name'];
+  $better_format_cck_instance = $field_name .'_'. $node_type;
+  // Build array of all formats for allowed checkboxes.
+  $formats = filter_formats();
+  foreach ($formats as $format) {
+    $format_boxes[$format->format] = $format->name;
+  }
+  
+  $key = 'better_formats';
+  $form['widget'][$key] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Input format settings'),
+    '#access' => user_access('administer filters'),
+    '#collapsible' => TRUE,
+    // Setting collapsed to false because the wieght will not be hidden otherwise
+    // the fieldset will be collapsed via JS if enabled.
+    '#collapsed' => FALSE,
+    '#attributes' => array('class' => 'input-format-settings'),
+  );
+  $allowed_key = $key . '_allowed';
+  $form['widget'][$key][$allowed_key] = array(
+    '#type' => 'checkboxes',
+    '#title' => t('Allowed formats'),
+    '#default_value' => variable_get($allowed_key . '_cck_' . $better_format_cck_instance, array()),
+    '#options' => $format_boxes,
+    '#description' => t('Limit the formats users have to choose from even if they have permission to use that format. This will NOT allow a user to use a format they do not have access rights to use. It will only hide additional formats they do have access rights to. If no boxes are checked, all formats that the user has permission to use will be allowed.'),
+    '#attributes' => array('class' => 'bf-allowed-formats'),
+  );
+  
+  $dform = array(
+    '#tree' => TRUE,
+    '#theme' => 'better_formats_defaults_admin_form',
+  );
+  
+  module_load_include('admin.inc', 'better_formats', 'better_formats_defaults');
+  $nform = better_formats_get_role_default_fields('cck', $better_format_cck_instance);
+  if (count($nform) == 0) {
+    // get default values for node if not set already
+    $nform = better_formats_get_role_default_fields_cck();
+  }
+  $form['widget'][$key]['better_formats_defaults'] = array_merge($dform, $nform);
+  
+  // Attach our validate and submit handlers.
+  $form['#validate'][] = 'better_formats_cck_text_add_text_widget_form_validate';
+  $form['#submit'][] = 'better_formats_cck_text_add_text_widget_form_submit';
+}
+
+/**
+ * Handles validation of the addition to the content field edit form.
+ */
+function better_formats_cck_text_add_text_widget_form_validate($form, &$form_state) {
+  module_load_include('admin.inc', 'better_formats', 'better_formats_defaults');
+  better_formats_defaults_admin_form_validate($form, $form_state);
+}
+
+/**
+ * Handles submission of the addition to the content field edit form.
+ */
+function better_formats_cck_text_add_text_widget_form_submit($form, &$form_state) {
+  $better_format_cck_instance = $form['#field']['field_name'] .'_'. $form['#field']['type_name'];
+  // Remove current db entries.
+  $sql = "DELETE FROM {better_formats_defaults}
+          WHERE type='cck/%s'";
+  db_query($sql, $better_format_cck_instance);
+
+  // Insert defualt values into DB.
+  $sql = "INSERT INTO {better_formats_defaults} 
+          VALUES (%d, '%s', %d, %d, %d)";
+  foreach ($form_state['values']['better_formats_defaults'] as $key => $values) {
+    list($type, $rid) = explode('-', $key);
+    db_query($sql, $rid, 'cck/' . $better_format_cck_instance, $values['format'], 2, $values['weight']); 
+  }
+
+  //save allowed values
+  variable_set('better_formats_allowed_cck_' .$better_format_cck_instance, $form_state['values']['better_formats_allowed']);
+}
+
+/*
+ * Function to convert default node formats to cck formats
+ */
+function better_formats_get_role_default_fields_cck() {
+  $nform = better_formats_get_role_default_fields('node');
+  $cckform = array();
+  foreach ($nform as $key => $value) {
+    list($type, $fieldno) = explode('-', $key);
+    $cckform['cck-'. $fieldno] = $value;
+  }
+  return $cckform;
+}
+
+
+/* CCK hooks */
+/**
+ * Implementation of hook_widget_info().
+ */
+function better_formats_cck_text_add_widget_info() {
+  return array(
+    'text_textfield_better_formats' => array(
+      'label' => t('Text field using Better Formats module'),
+      'field types' => array('text'),
+      'multiple values' => CONTENT_HANDLE_CORE,
+      'callbacks' => array(
+        'default value' => CONTENT_CALLBACK_DEFAULT,
+      ),
+      'module' => 'better_formats_cck_text_add'
+    ),
+    'text_textarea_better_formats' => array(
+      'label' => t('Text area using Better Formats module'),
+      'field types' => array('text'),
+      'multiple values' => CONTENT_HANDLE_CORE,
+      'callbacks' => array(
+        'default value' => CONTENT_CALLBACK_DEFAULT,
+      ),
+      'module' => 'better_formats_cck_text_add'
+    ),
+  );
+}
+
+/**
+ * Implementation of FAPI hook_elements().
+ *
+ * Any FAPI callbacks needed for individual widgets can be declared here,
+ * and the element will be passed to those callbacks for processing.
+ *
+ * Drupal will automatically theme the element using a theme with
+ * the same name as the hook_elements key.
+ */
+function better_formats_cck_text_add_elements() {
+  return array(
+    'text_textfield_better_formats' => array(
+      '#input' => TRUE,
+      '#columns' => array('value'), '#delta' => 0,
+      '#process' => array('text_textfield_process', 'better_formats_cck_text_add_text_process'),
+      '#autocomplete_path' => FALSE,
+    ),
+    'text_textarea_better_formats' => array(
+      '#input' => TRUE,
+      '#columns' => array('value', 'format'), '#delta' => 0,
+      '#process' => array('text_textarea_process', 'better_formats_cck_text_add_text_process'),
+      '#filter_value' => FILTER_FORMAT_DEFAULT,
+    ),
+  );
+}
+
+/**
+ * Implementation of hook_widget_settings().
+ */
+function better_formats_cck_text_add_widget_settings($op, $widget) {
+  
+   switch ($op) {
+    case 'form':
+      $form = array();
+      $rows = (isset($widget['rows']) && is_numeric($widget['rows'])) ? $widget['rows'] : 5;
+      $size = (isset($widget['size']) && is_numeric($widget['size'])) ? $widget['size'] : 60;
+      if ($widget['type'] == 'text_textfield_better_formats') {
+        $form['rows'] = array('#type' => 'hidden', '#value' => $rows);
+        $form['size'] = array(
+          '#type' => 'textfield',
+          '#title' => t('Size of textfield'),
+          '#default_value' => $size,
+          '#element_validate' => array('_text_widget_settings_size_validate'),
+          '#required' => TRUE,
+        );
+      }
+      else {
+        $form['rows'] = array(
+          '#type' => 'textfield',
+          '#title' => t('Rows'),
+          '#default_value' => $rows,
+          '#element_validate' => array('_text_widget_settings_row_validate'),
+          '#required' => TRUE,
+        );
+        $form['size'] = array('#type' => 'hidden', '#value' => $size);
+      }
+      return $form;
+
+    case 'save':
+      return array('rows', 'size');
+  }
+}
+
+/**
+ * Implementation of hook_widget().
+ */
+function better_formats_cck_text_add_widget(&$form, &$form_state, $field, $items, $delta = 0) {
+  //warn user that formats per node type need to be set
+  if (!variable_get('better_formats_per_node_type', 0)) {
+    drupal_set_message(t('For better formats to enforce your input format choice you have to enable the <strong>Control formats per node type</strong> setting, !link.', array('!link' => l('click here to update this setting','admin/settings/filters/settings'))),'warning');
+  }
+  $element = array(
+    '#type' => $field['widget']['type'],
+    '#default_value' => isset($items[$delta]) ? $items[$delta] : '',
+  );
+  return $element;
+}
+
+/**
+ * Process an individual element.
+ *
+ * Add the Better Formats form
+ */
+function better_formats_cck_text_add_text_process($element, $edit, $form_state, $form) {
+  better_formats_set_cck_format($element, $form_state);
+  return $element;
+}
+
+/**
+ * FAPI theme for an individual text elements.
+ *
+ * The textfield or textarea is already rendered by the
+ * textfield or textarea themes and the html output
+ * lives in $element['#children']. Override this theme to
+ * make custom changes to the output.
+ *
+ * $element['#field_name'] contains the field name
+ * $element['#delta]  is the position of this element in the group
+ */
+function better_formats_cck_text_add_theme() {
+  return array(
+    'text_textarea_better_formats' => array(
+      'arguments' => array('element' => NULL),
+    ),
+    'text_textfield_better_formats' => array(
+      'arguments' => array('element' => NULL),
+    ),
+  );
+}
+
+function theme_text_textarea_better_formats($element) {
+  return $element['#children'];
+}
+
+function theme_text_textfield_better_formats($element) {
+  return $element['#children'];
+}
+
+function better_formats_set_cck_format(&$element, $form_state) {
+  if (isset($element['format'])) {  
+    $filter_key = (count($element['#columns']) == 2) ? $element['#columns'][1] : 'format';
+    $format     = isset($element['#value'][$filter_key]) ? $element['#value'][$filter_key] : $element['#default_value'][$filter_key];
+    $parents    = array_merge($element['#parents'] , array($filter_key));
+    //Create an type combining node_type and fieldname so each instance can have separate formats
+    $better_format_cck_instance = $element['#field_name'] .'_'. $element['#type_name'];
+    $default = better_formats_get_default_format('cck', $better_format_cck_instance);
+    // Overwrite format default if new node.
+    if (!isset($form_state['values']['nid']) || !isset($format)) {
+      $format = $default;
+    }
+    $format = filter_resolve_format($format);
+    // Set default format for cck textarea.
+    $element['#value'][$filter_key] = $format;
+    // Set filter selection form.
+    $element[$filter_key] = better_formats_filter_form($format, $default, 'CCK field', 'cck_' .$better_format_cck_instance, 1, $parents);
+  }
+}

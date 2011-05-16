@@ -1,0 +1,9 @@
+; $Id$
+name = "EOL Partnership Workflow"
+description = "(Alpha release) Adds support for Workflow module to the Encyclopedia of Life (EOL) Partnership module."
+package = Encyclopedia of Life
+dependencies[] = eol_partnership
+dependencies[] = content
+dependencies[] = workflow
+core = 6.x
+php = 5.2

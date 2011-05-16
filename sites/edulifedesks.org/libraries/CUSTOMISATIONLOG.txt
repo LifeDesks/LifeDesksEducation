@@ -1,0 +1,9 @@
+CUSTOMISATION LOG
+-----------------
+
+* Customisations made to libraries for use with Education LifeDesks
+
+TINYMCE
+-------
+* Default skin modifications
+  ** Increased WYSIWYG font size from 10px (r2467) to 12px (r2692): tinymce/jscripts/themes/advanced/skins/default/content.css 

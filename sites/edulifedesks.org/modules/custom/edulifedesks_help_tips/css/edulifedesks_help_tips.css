@@ -1,0 +1,20 @@
+/*.block .view-edulifedesks-help-tips a {
+  padding-right: 30px;
+  min-height: 30px;
+  display: block;
+  float: right;
+  text-decoration: none;
+  text-align: center;
+}
+.block .view-edulifedesks-help-tips a:link,
+.block .view-edulifedesks-help-tips a:visited  {
+  text-decoration: none;
+}
+.block .view-edulifedesks-help-tips a:hover,
+.block .view-edulifedesks-help-tips a:focus,
+.block .view-edulifedesks-help-tips a:active {
+  text-decoration: none;
+}
+.block .view-edulifedesks-help-tips a.more {
+  background: transparent url('images/more.png') top right no-repeat;
+}*/

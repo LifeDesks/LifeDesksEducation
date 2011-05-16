@@ -1,0 +1,75 @@
+Index: imagefield_assist_popup.js
+===================================================================
+--- imagefield_assist_popup.js	(revision 2941)
++++ imagefield_assist_popup.js	(working copy)
+@@ -1,21 +1,22 @@
+ /* $Id: imagefield_assist_popup.js,v 1.1.2.2 2009/12/07 18:27:40 lourenzo Exp $ */
+ 
+ var currentMode;
++var referrer_url = document.referrer.split("/");
++var parent_nid = 0;
++var group_nid = 0;
++if (referrer_url[3] == 'class' && parseInt(referrer_url[6])) {
++  parent_nid = referrer_url[6];
++  if (parseInt(referrer_url[4])) { group_nid = referrer_url[4] };
++} else if (referrer_url[3] == 'node' && parseInt(referrer_url[4])) {
++  parent_nid = referrer_url[4];
++}
+ 
+ function onChangeBrowseBy(el) {
+   frames['imagefield_assist_main'].window.location.href = Drupal.settings.basePath + 'index.php?q=imagefield_assist/thumbs/' + el.value;
+ }
+ 
+ function onClickUpload() {
+-  var referrer_url = document.referrer.split("/");
+-  var parent_nid = 0;
+-  var group_nid = 0;
+-  if (referrer_url[3] == 'class' && parseInt(referrer_url[6])) {
+-    parent_nid = referrer_url[6];
+-    if (parseInt(referrer_url[4])) { group_nid = referrer_url[4] };
+-  } else if (referrer_url[3] == 'node' && parseInt(referrer_url[4])) {
+-    parent_nid = referrer_url[4];
+-  }
++  
+   frames['imagefield_assist_main'].window.location.href = Drupal.settings.basePath + 'index.php?q=imagefield_assist/upload/' + parent_nid + '/' + group_nid;
+ }
+ 
+@@ -24,7 +25,7 @@
+ }
+ 
+ function onClickStartOver() {
+-  frames['imagefield_assist_main'].window.location.href = Drupal.settings.basePath + 'index.php?q=imagefield_assist/thumbs/imagefield_assist_browser';
++  frames['imagefield_assist_main'].window.location.href = Drupal.settings.basePath + 'index.php?q=imagefield_assist/thumbs/imagefield_assist_browser/' + parent_nid + '/' + group_nid;
+ }
+ 
+ function updateCaption() {
+Index: imagefield_assist_tinymce.js
+===================================================================
+--- imagefield_assist_tinymce.js	(revision 2941)
++++ imagefield_assist_tinymce.js	(working copy)
+@@ -17,7 +17,15 @@
+ 
+ // get variables that were passed to this window from the tinyMCE editor
+ var fid, imagenid, captionTitle, captionDesc, link, url, align, width, height, lightbox;
+-
++var referrer_url = document.referrer.split("/");
++var parent_nid = 0;
++var group_nid = 0;
++if (referrer_url[3] == 'class' && parseInt(referrer_url[6])) {
++  parent_nid = referrer_url[6];
++  if (parseInt(referrer_url[4])) { group_nid = referrer_url[4] };
++} else if (referrer_url[3] == 'node' && parseInt(referrer_url[4])) {
++  parent_nid = referrer_url[4];
++}
+ function initLoader() {
+   fid          =      tinyMCEPopup.getWindowArg('fid');
+   imagenid     = '' + tinyMCEPopup.getWindowArg('imagenid');
+@@ -35,7 +43,7 @@
+     frames['imagefield_assist_main'].window.location.href = Drupal.settings.basePath + 'index.php?q=imagefield_assist/properties/' + fid + '/update';
+   }
+   else {
+-    frames['imagefield_assist_main'].window.location.href = Drupal.settings.basePath + 'index.php?q=imagefield_assist/thumbs/imagefield_assist_browser';
++    frames['imagefield_assist_main'].window.location.href = Drupal.settings.basePath + 'index.php?q=imagefield_assist/thumbs/imagefield_assist_browser/' + parent_nid + '/' + group_nid;
+   }
+ }
+ 

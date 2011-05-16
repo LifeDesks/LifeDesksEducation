@@ -1,0 +1,13 @@
+Index: imagefield_assist.module
+===================================================================
+--- imagefield_assist.module	(revision 3779)
++++ imagefield_assist.module	(working copy)
+@@ -1082,7 +1082,7 @@
+ /**
+  * Construct the image properties form.
+  */
+-function imagefield_assist_properties_form($form_state, &$img, $update) {
++function imagefield_assist_properties_form($form_state, $img, $update) {
+   require_once drupal_get_path('module', 'imagefield_assist') .'/includes/imagefield_assist.token.inc';
+ 
+   $image_info = image_get_info(file_create_path($img->path));

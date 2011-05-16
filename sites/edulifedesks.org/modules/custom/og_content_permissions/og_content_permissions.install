@@ -1,0 +1,20 @@
+<?php
+// $Id$
+/**
+ * @file
+ * Install and uninstall scripts for OG Content Permissions module.
+ */
+/**
+ * Implementation of hook_install().
+ */
+function og_content_permissions_install() {
+
+}
+/**
+ * Impementation of hook_uninstall().
+ */
+function og_content_permissions_uninstall() {
+  variable_del('og_content_permissions_configurable_fields');
+  variable_del('og_content_permissions_per_group');
+  variable_del('og_content_permissions_post_types');
+}

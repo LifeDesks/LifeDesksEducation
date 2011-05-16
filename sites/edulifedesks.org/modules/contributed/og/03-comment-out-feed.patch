@@ -1,0 +1,13 @@
+Index: modules/og_views/og_views.module
+===================================================================
+--- modules/og_views/og_views.module	(revision 3705)
++++ modules/og_views/og_views.module	(working copy)
+@@ -216,7 +216,7 @@
+     }
+     
+     drupal_set_title(filter_xss_admin($view->build_info['title']));
+-    drupal_add_feed(url("node/$node->nid/feed"), drupal_get_title());
++    // lwalley: commented out unnecessary feed link drupal_add_feed(url("node/$node->nid/feed"), drupal_get_title());
+   }
+   else {
+     drupal_set_title(filter_xss_admin($node->title));

@@ -1,0 +1,9 @@
+; $Id$
+name = "Organic Groups Content Permissions"
+description = "(Alpha release) Allow group owners to control which content fields group members can edit."
+package = Organic groups
+dependencies[] = og
+dependencies[] = content
+dependencies[] = views
+core = 6.x
+php = 5.2

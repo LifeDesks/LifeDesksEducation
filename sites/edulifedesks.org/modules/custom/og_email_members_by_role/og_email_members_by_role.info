@@ -1,0 +1,7 @@
+; $Id$
+
+name = Action email Organic Group members by role
+description = "Provides an action to email all users in selected role(s) of a group"
+package = Actions
+core = 6.x
+dependencies[] = og_user_roles

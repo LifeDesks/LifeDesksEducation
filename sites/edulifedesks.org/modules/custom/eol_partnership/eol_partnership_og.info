@@ -1,0 +1,8 @@
+; $Id$
+name = "EOL Partnership Organic Groups"
+description = "(Alpha release) Adds Organic Groups support to the Encyclopedia of Life (EOL) Partnership module."
+package = Encyclopedia of Life
+dependencies[] = eol_partnership
+dependencies[] = og
+core = 6.x
+php = 5.2

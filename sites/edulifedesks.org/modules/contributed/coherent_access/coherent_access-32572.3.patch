@@ -1,0 +1,50 @@
+Index: coherent_access.module
+===================================================================
+RCS file: /cvs/drupal-contrib/contributions/modules/coherent_access/coherent_access.module,v
+retrieving revision 1.2.2.5
+diff -u -p -r1.2.2.5 coherent_access.module
+--- coherent_access.module	2 Feb 2009 21:47:19 -0000	1.2.2.5
++++ coherent_access.module	26 Oct 2009 21:46:06 -0000
+@@ -151,13 +151,13 @@ function coherent_access_admin_settings(
+   $form['coherent_access_subject'] = array(
+     '#type' => 'textarea',
+     '#title' => t('Email notification subject'),
+-    '#default_value' => variable_get('coherent_access_subject', 'You have been added as a %role  for %nodetitle by %sender'),
++    '#default_value' => variable_get('coherent_access_subject', 'You have been added as a %role for %nodetitle by %sender'),
+   );
+   
+   $form['coherent_access_body'] = array(
+     '#type' => 'textarea',
+     '#title' => t('Email notification body'),
+-    '#default_value' => variable_get('coherent_access_body', 'You have been added as a %role for %nodetitle by %sender. You can access this by going to %nodeurl'),
++    '#default_value' => variable_get('coherent_access_body', 'Dear %recipient, You have been added as a %role for %nodetitle by %sender. You can access this by going to %nodeurl'),
+   );
+ 
+   return system_settings_form($form);
+@@ -510,15 +510,14 @@ function coherent_access_nodeapi(&$node,
+           foreach ($inserts as $uid => $mode) {
+             if (empty($existing) || !array_key_exists($uid, $existing)) {
+               $params['recipient'] = user_load(array('uid' => $uid));
+-              if ($mode == COHERENT_ACCESS_EDIT | COHERENT_ACCESS_VIEW) {
++              if ($mode == (COHERENT_ACCESS_EDIT | COHERENT_ACCESS_VIEW)) {
+                 $params['role'] = 'editor';
+               }
+               else {
+                 $params['role'] = 'viewer';
+               }
+               $mailkey = 'coherent_access'. $node->nid .'_'. $uid;
+-              coherent_access_mail($key, $message, $params);
+-              drupal_mail($mailkey, $params['recipient']->mail, $message['subject'], $message['body']);
++              drupal_mail('coherent_access', $mailkey, $params['recipient']->mail, user_preferred_language($params['recipient']), $params, $params['sender']->mail);
+             }
+           }
+         }
+@@ -707,7 +706,7 @@ function coherent_access_mail($key, &$me
+   $node = $params['node'];
+   
+   $subject = variable_get('coherent_access_subject', 'You have been added as a %role for %nodetitle by %sender. You can access this by going to %nodeurl');
+-  $body = variable_get('coherent_access_body', 'You have been added as a %role for %nodetitle by %sender. You can access this by going to %nodeurl');
++  $body = variable_get('coherent_access_body', 'Dear %recipient, You have been added as a %role for %nodetitle by %sender. You can access this by going to %nodeurl');
+   
+   $urlpath = 'node/'. $node->nid;
+   

@@ -1,0 +1,65 @@
+--- /Users/vitthal/Library/Caches/Cornerstone/Store/https%3A%2F%2Fvkudal%40repository.eol.org%2Flifedesks/0000002795/education/trunk/sites/edulifedesks.org/modules/contributed/og_user_roles/og_user_roles.pages.inc	Mon Dec  7 12:29:21 2009
++++ /Users/vitthal/Library/Caches/Cornerstone/Store/https%3A%2F%2Fvkudal%40repository.eol.org%2Flifedesks/0000002796/education/trunk/sites/edulifedesks.org/modules/contributed/og_user_roles/og_user_roles.pages.inc	Wed Jan 27 15:15:27 2010
+@@ -157,16 +157,60 @@
+  * Render the group user roles assignment form like user permissions table.
+  */
+ function theme_og_user_roles_page_form($form) {
+-  $header = array_merge(array('', t('Default roles')), $form['#assignable_roles']);
++  // Retrieve admin users in an array $is_admin[]
++  $ogadmins = db_query("SELECT uid FROM og_uid WHERE is_admin = 1 and nid = %d", $form['#node']->nid);
++  while($row = db_fetch_array($ogadmins)){
++    $is_admin[] = $row['uid'];
++  }
++  // Check whether the default roles are available for the group
++  $default_roles = array();
++  $headers = array();
++  foreach (element_children($form['user_roles']) as $item) {
++    if($form['user_roles'][$item]['default_roles']['#value']) {
++      $default_roles[] = $form['user_roles'][$item]['default_roles']['#value'];
++    }
++  }
++  // if default roles are available then show the header 'Default roles'
++  if($default_roles){
++    $headers[] = array('', t('Default roles'));
++  } else {
++    $headers[] = array('');
++  }
++  $header = array_merge($headers[0], $form['#assignable_roles'], array(t('Manage'), t('Admin')));
+ 
+   $rows = array();
+   foreach (element_children($form['user_roles']) as $item) {
+     $row = array();
+     $row[] = drupal_render($form['user_roles'][$item]['user']);
+-    $row[] = drupal_render($form['user_roles'][$item]['default_roles']);
++    // if default roles are available then show the values under the header 'Default roles'
++    if($default_roles){
++      $row[] = drupal_render($form['user_roles'][$item]['default_roles']);
++    }
+     foreach (element_children($form['user_roles'][$item]['roles']) as $role) {
+       $row[] = drupal_render($form['user_roles'][$item]['roles'][$role]);
+     }
++
++    if($item != $form['#node']->uid) {
++      // Show link for approve, deny or remove membership if the user is not the group owner
++      $is_active = db_result(db_query("SELECT is_active FROM og_uid WHERE nid = %d AND uid = %d", $form['#node']->nid, $item));
++      if($is_active) {
++        $row[] = l(t('Remove membership'), t("og/unsubscribe/".$form['#node']->nid."/".$item), array('query' => drupal_get_destination(), 'title' => t('Remove Membership.'), 'absolute' => TRUE));
++      } else {
++	    $token = og_get_token($form['#node']->nid);
++        $row[] = t('Request: <a href="@approve">approve</a> or <a href="@deny">deny</a>.', array('@approve' => url("og/approve/".$form['#node']->nid."/".$item."/".$token, array('query' => drupal_get_destination())), '@deny' => url("og/deny/".$form['#node']->nid."/".$item."/".$token, array('query' => drupal_get_destination()))));
++      }
++
++      // Show appropriate link to create or remove admin if the user is not the group owner
++      if (!in_array($item, $is_admin)) {
++        $row[] = l(t('Admin: Create'), t("og/create_admin/".$form['#node']->nid."/".$item), array('query' => drupal_get_destination(), 'title' => t('Create Admin.'), 'absolute' => TRUE));
++      } else {
++        $row[] = l(t('Admin: Remove'), t("og/delete_admin/".$form['#node']->nid."/".$item), array('query' => drupal_get_destination(), 'title' => t('Remove Admin.'), 'absolute' => TRUE));
++      }
++    } else {
++      $row[] = t('Group Owner');
++      $row[] = t(' ');
++    }
++
+     $rows[] = $row;
+   }
+ 

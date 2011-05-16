@@ -1,0 +1,1532 @@
+<?php
+// $Id$
+/**
+ * @file
+ * Module for customising Drupal for Education LifeDesks.
+ * This module overrides core and contributed module configurations for Education LifeDesks
+ * @see http://edulifedesks.org
+ */
+/**
+ * Implementation of hook_help().
+ *
+ */
+function edulifedesks_alter_help($path, $arg) {
+  global $conf;
+  if ($path == 'admin/help#edulifedesks_alter') {
+    $txt = 'Education LifeDesks Alter overrides Drupal core and contributed modules appearance and configuration '
+          .'for use in !edulifedesk_url';
+    $link = l('Education LifeDesks', 'http://' . $conf['_edulifedesks_domain']);
+    $replace = array(
+      '!edulifedesk_url' => $link
+    );
+    return '<p>'. t($txt, $replace) .'</p>';
+  }
+}
+/**
+ * Implementation of hook_init().
+ */
+function edulifedesks_alter_init() {
+  global $user;
+  // Add custom css
+  // drupal_add_css(drupal_get_path('module', 'edulifedesks_alter') .'/edulifedesks_alter.css', 'module', 'all');
+  // If context module installed then return results for custom context conditions
+  if (module_exists('context')) {
+    if (module_exists('og')) {
+      // Get current group context. If none exists get context from path alias -assumes alias consistently uses group node machine name e.g. 'class'
+      $group_node = og_get_group_context();
+      if ($group_node) {
+        $gtype = $group_node->type;
+        $gid = $group_node->nid;
+      }
+      else {
+        $current_alias = request_uri();
+        $alias_args = explode('/', $current_alias);
+        if (og_is_group_type($alias_args[1])) {
+          $gtype = $alias_args[1];
+          $gid = $alias_args[2];
+        }
+      }
+      if ($gtype) {
+        context_set_by_condition('group-type', $gtype, TRUE);
+      }
+      if ($gid) {
+        // check if current user is group member using group nid from path if group context not set
+        $is_member = og_is_group_member($gid, TRUE, $user->uid);
+        if ($is_member) {
+          context_set_by_condition('group-member', 'a member or administrator', TRUE);
+        }
+        else {
+          context_set_by_condition('group-member', 'not a member', TRUE);
+        }
+      }
+    }
+  }
+}
+/**
+ * Implementation of hook_watchdog().
+ */
+function edulifedesks_alter_watchdog($log_entry) {
+  if ($log_entry['type'] == 'eol_partnership') {
+    //drupal_mail('eol_partnership', 'watchdog', $log_entry['user']->mail, language_default('language'), $log_entry);
+  }
+}
+/**
+ * Implementation of hook_mail().
+ */
+function edulifedesks_alter_mail($key, &$message, $params) {
+  $language = $message['language'];
+  $variables = user_mail_tokens($params['user'], $language);
+  $variables['severity'] = $params['severity'];
+  $variables['log_message'] = $params['message'];
+  switch ($key) {
+    case 'watchdog':
+      $message['subject'] = t('EOL Partnership !severity notice from !site', $variables, $language->language);
+      $message['body'] = t('Message !log_message.', $variables, $language->language);
+      break;
+  }
+}
+/**
+ * Implementation of hook_theme().
+ */
+function edulifedesks_alter_theme() {
+  return array(
+    'edulifedesks_alter_group_settings_block' => array(
+      'arguments' => array('group' => NULL),
+      'file' => 'edulifedesks_alter.theme.inc',
+    ),
+  );
+}
+/**
+ * Extend context module to add condition for group members viewing their own group content
+ * At present context module ORs rather than ANDs conditions so adding some custom
+ * conditions here to allow both ANDing and to extend conditions e.g. for group membership.
+ */
+function edulifedesks_alter_context_conditions() {
+  // add new context conditions to context module
+  // see hook_nodeapi which gives context module condition result
+  $items = array();
+  if (module_exists('og')) {
+    $items['group-member'] = array(
+      '#title' => t('Group member'),
+      '#description' => t('Set this context when user is a member of the current group.'),
+      '#options' => array(
+        0 => t('-- None --'),
+        'not a member' => t('not a member'),
+        'a member or administrator' => t('a member or administrator')
+      ),
+      '#type' => 'select',
+      '#multiple' => TRUE,
+    );
+    // get list of content types designated as groups
+    $content_types = node_get_types();
+    $group_node_types = array(0 => t('-- None --'));
+    foreach ($content_types as $type) {
+      if (og_is_group_type($type->type)) {
+        $group_node_types[$type->type] = $type->type;
+      }
+    }
+    $items['group-type'] = array(
+      '#title' => t('Group node type'),
+      '#description' => t('Set this context when group node is of type selected.'),
+      '#options' => $group_node_types,
+      '#type' => 'select',
+      '#multiple' => TRUE,
+    );
+  }
+  return $items;
+}
+/**
+ * Implementation of hook_action_info().
+ */
+function edulifedesks_alter_action_info() {
+  return array(
+    'edulifedesks_alter_change_state_action' => array(
+      'type' => 'node',
+      'description' => t('Change workflow state of associated nodes to new state.'),
+      'configurable' => TRUE,
+      'hooks' => array(
+        'nodeapi' => array('presave'),
+        'comment' => array('insert', 'update'),
+        'workflow' => array('any'),
+      ),
+    ),
+  );
+}
+/**
+ * Implementation of a Drupal action.
+ * Change associated node to a specified state.
+ */
+function edulifedesks_alter_change_state_action($node, $context) {
+  $view_name = $context['associated_nodes_view'];
+  $display_id = 'default';
+  $view = views_get_view($view_name);
+  $view->args = array($node->nid);
+  $view->set_display($display_id);
+  $view->execute();
+  $associated_nodes = $view->result;
+  foreach ($associated_nodes as $associated_nid) {
+    $associated_node = node_load($associated_nid->nid);
+    $comment = t($context['workflow_comment'], array('%node_title' => check_plain($node->title), '%associated_node_title' => check_plain($associated_node->title), '%state' => check_plain($context['state_name'])));
+    workflow_execute_transition($associated_node, $context['target_sid'], $comment, $context['force']);
+  }
+}
+/**
+ * Configuration form for "Change workflow state of associated nodes to new state" action.
+ *
+ * @see edulifedesks_alter_change_state_action()
+ */
+function edulifedesks_alter_change_state_action_form($context) {
+  $result = db_query("SELECT * FROM {workflow_states} ws LEFT JOIN {workflows} w ON ws.wid = w.wid WHERE ws.sysid = 0 AND ws.status = 1 ORDER BY ws.wid, ws.weight");
+  $previous_workflow = '';
+  $options = array();
+  while ($data = db_fetch_object($result)) {
+    $options[$data->name][$data->sid] = $data->state;
+  }
+  $associated_nodes_view_options = array('edulifedesks_linked_images' => 'edulifedesks_linked_images');
+  $form['associated_nodes_view'] = array(
+    '#type' => 'select',
+    '#title' => t('Associated nodes view'),
+    '#description' => t('Please select the name of the view that represents the associated nodes you want to change when this action runs. View must have a single argument that is the node id of the post involved in triggering this action. Default display of view will be used to get associated node ids. Associated node ids must be output as field in view, e.g. edulifedesks_linked_images'),
+    '#default_value' => isset($context['associated_nodes_view']) ? $context['associated_nodes_view'] : '',
+    '#options' => $associated_nodes_view_options,
+    '#required' => TRUE,
+  );
+  $form['target_sid'] = array(
+    '#type' => 'select',
+    '#title' => t('Target state'),
+    '#description' => t('Please select that state that should be assigned when this action runs.'),
+    '#default_value' => isset($context['target_sid']) ? $context['target_sid'] : '',
+    '#options' => $options,
+  );
+  $form['force'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Force transition'),
+    '#description' => t('If this box is checked, the new state will be assigned even if workflow permissions disallow it.'),
+    '#default_value' => isset($context['force']) ? $context['force'] : '',
+  );
+  $form['workflow_comment'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Message'),
+    '#description' => t('This message will be written into the workflow history log when the action runs. You may include the following variables: %state, %node_title, %associated_node_title'),
+    '#default_value' => isset($context['workflow_history']) ? $context['workflow_history'] : t('%associated_node_title state changed to %state. Action automatically triggered by state change of %node_title.'),
+  );
+  return $form;
+}
+/**
+ * Submit handler for "Change workflow state of associated nodes to new state" action configuration form.
+ *
+ * @see edulifedesks_alter_change_state_action_form()
+ */
+function edulifedesks_alter_change_state_action_submit($form_id, $form_state) {
+  $state_name = db_result(db_query("SELECT state FROM {workflow_states} WHERE sid = %d", $form_state['values']['target_sid']));
+  return array(
+    'associated_nodes_view' => $form_state['values']['associated_nodes_view'],
+    'target_sid' => $form_state['values']['target_sid'],
+    'state_name' => $state_name,
+    'force' => $form_state['values']['force'],
+    'workflow_comment' => $form_state['values']['workflow_comment'],
+  );
+}
+/**
+ * Implementation of hook_menu().
+ *
+ * /
+function edulifedesks_alter_menu() {
+  // if evaluation node type exists then link to other node types
+  $items['node/%node/evaluation'] = array(
+    'title' => 'Evaluation',
+    'type' => MENU_LOCAL_TASK,
+    'access callback' => '_evaluation_node_tab_access',
+    'access arguments' => array(1),
+    'page callback' => '_evaluation_tab_page',
+    'page arguments' => array(1),
+    'file' => 'edulifedesks_alter.pages.inc',
+    'weight' => 2,
+  );
+  return $items;
+}*/
+/**
+ * Menu access control callback.
+ * Determines access to Evaluation tab.
+ */
+function _evaluation_node_tab_access($node = NULL) {
+  global $user;
+  // only show on certain pages (should get allowed content types from cck)
+  $field_name = 'field_reviewed_content';
+  $field = content_fields($field_name);
+  foreach ($field['referenceable_types'] as $type => $allowed) {
+    if ($node->type == $type && $allowed === 0) {
+      return FALSE;
+    }
+  }
+  // user is author of current node (being evaluated) or (super) administrator or can create evaluations (latter only works in sitewide context, need group context to check within group)
+  if ($node->uid == $user->uid || user_access('administer nodes')) {
+    return TRUE;
+  }
+  if (module_exists('og_user_roles')) {
+    $group = og_get_group_context();
+    if ($group && _edulifedesks_alter_group_role_access('create evaluation content', $group->nid, $user->uid)) return TRUE;
+  }
+  // otherwise don't show
+  return FALSE;
+}
+
+/**
+ * Implementation of hook_block().
+ */
+function edulifedesks_alter_block($op='list', $delta=0, $edit=array()) {
+
+  switch ($op) {
+    case 'list':
+      $blocks = array();
+      $blocks[0]['info'] = t('Authenticated users personal menu');
+      $blocks[0]['cache'] = BLOCK_NO_CACHE;
+      $blocks[1]['info'] = t('Class group dynamic menu');
+      $blocks[1]['cache'] = BLOCK_NO_CACHE;
+      $blocks[2]['info'] = t('Manage current group membership');
+      $blocks[2]['cache'] = BLOCK_NO_CACHE;
+      //$blocks[3]['info'] = t('Group settings');
+      //$blocks[3]['cache'] = BLOCK_NO_CACHE;
+      return $blocks;
+
+    case 'view':
+      switch ($delta) {
+        case 0:
+          $block['subject'] = '';
+          $block['content'] = _edulifedesks_alter_build_personal_links();
+          return $block;
+        case 1:
+          $block['subject'] = '';
+          $block['content'] = _edulifedesks_alter_build_class_group_links();
+          return $block;
+        case 2:
+          $block['subject'] = '';
+          $block['content'] = _edulifedesks_alter_build_subscription_links();
+          return $block;
+        case 3:
+          $block['subject'] = t('Group settings');
+          $block['content'] = _edulifedesks_alter_build_group_settings();
+          return $block;
+      }
+  }
+
+}
+/**
+ * Build content for block
+ */
+function _edulifedesks_alter_build_group_settings() {
+  // Get group details
+  $group = _edulifedesks_alter_get_current_group_details();
+  if (!empty($group)) {
+    //TODO: Build content as required
+  }
+ return theme('edulifedesks_alter_group_settings_block', $group);
+}
+/**
+ * Get current group details
+ */
+function _edulifedesks_alter_get_current_group_details() {
+  $group = og_get_group_context();
+  $alias = explode('/', request_uri());
+  if (!isset($group) || $group->nid == NULL || (int)$group->nid < 1) {
+    switch ($alias[1]) {
+      case 'class':
+        $group = node_load($alias[2]);
+      break;
+    }
+  }
+  if (!isset($group) || $group->nid == NULL || (int)$group->nid < 1) return NULL;
+  $details = array(
+    'id' => $group->nid,
+    'name' => $group->title,
+    'path' => 'node/' . $group->nid,
+    'node' => $group,
+  );
+  return $details;
+}
+/**
+ * Build links for authenticated user's personal dynamic menu block
+ */
+function _edulifedesks_alter_build_personal_links() {
+  global $user;
+  $current_path = isset($_GET['q']) ? $_GET['q'] : '<front>';
+  $current_alias = request_uri();
+  $items = array();
+  $items[] = array(
+    'data' => l(t('My dashboard'), 'dashboard', array('attributes' => array('class' => 'my-dashboard', 'title' => 'Recent activity in your groups.'))),
+    'class' => 'my-dashboard',
+  );
+  $items[] = array(
+    'data' => l(t('My profile'), 'user/' . $user->uid, array('attributes' => array('class' => 'my-profile', 'title' => 'Your account details.'))),
+    'class' => 'my-profile',
+  );
+  $group = _edulifedesks_alter_get_current_group_details();
+  if ($group) {
+    if (preg_match('@^/class/[0-9]+/taxon-pages.*@i', $current_alias)) {
+      $items[''] = array(
+        'data' => l(t('@gname Taxon pages', array('@gname' => _edulifedesks_alter_truncate($group['name'], 20, '...'))), $group['path'] .'/taxon-pages', array('attributes' => array('class' => 'current-group taxon-pages active-trail', 'title' => 'Taxon pages submitted in this group.'))),
+        'class' => 'group-taxon-pages',
+      );
+    }
+    else {
+      $items[] = array(
+        'data' => l(t('@gname Overview', array('@gname' => _edulifedesks_alter_truncate($group['name'], 20, '...'))), $group['path'], array('attributes' => array('class' => 'current-group overview active-trail', 'title' => 'Current group overview.'))),
+        'class' => 'current-group gid-' . $group['id'],
+      );
+    }
+  }
+  return theme('item_list', $items, '', 'ul', array('class' => 'personal-menu links'));
+}
+/**
+ * Build links for class group dynamic menu block
+ */
+function _edulifedesks_alter_build_class_group_links() {
+  global $user;
+  $items = array();
+  $group = _edulifedesks_alter_get_current_group_details();
+  if ($group) {
+    (drupal_strlen($group['name']) > 35) ? $class = 'long-title' : $class = '';
+    $content = '<h2 class="title ' . $class .'" title="' . check_plain($group['name']) .'"><span class="group-label">Group:</span> ' .  _edulifedesks_alter_truncate($group['name'], 65) .'</h2>';
+    if (arg(1) == $group['id'] && !arg(2)) { // Only show tabs on group home page
+      $tabs = array();
+      if (module_grants_node_access('update', $group['node'])) {
+        $tabs['edit'] = array(
+          'href' => $group['path'] .'/edit',
+          'title' => '<span class="tab">[ ' . t('Edit group') .' ]</span>',
+          'html' => TRUE,
+        );
+      }
+      if (user_access('delete own class content') && $group['node']->uid == $user->uid) {
+        $tabs['delete'] = array(
+          'href' => $group['path'] .'/delete',
+          'title' => '<span class="tab">[ ' . t('Delete group') .' ]</span>',
+          'html' => TRUE,
+        );
+      }
+      if (og_is_group_admin($group['node']) && module_exists('og_content_permissions')) {
+        $tabs['content-settings'] = array(
+          'href' => $group['path'] .'/configure',
+          'title' => '<span class="tab">[ ' . t('Content settings') .' ]</span>',
+          'html' => TRUE,
+        );
+      }
+      $content .= '<div class="tabs">' . theme('links', $tabs, array('class' => 'class group-tabs primary')) .'</div>';
+    }
+    $current_path = isset($_GET['q']) ? $_GET['q'] : '<front>';
+    $current_alias = request_uri();
+    $aclass = 'current-group overview';
+    $items[] = array(
+      'data' => l(t('Group overview'), $group['path'], array('attributes' => array('class' => $aclass, 'title' => 'Current group overview.'))),
+      'class' => 'current-group group-overview gid-' . $group['id'],
+    );
+    // Only show other tabs if group member?
+    if (og_is_group_member($group['id'], TRUE, $user->uid)) {
+      $aclass = 'current-group taxon-pages';
+      if (preg_match('@/class/[0-9]+/taxon-page/[0-9]+@i', $current_alias)) $aclass .= ' active';
+      $items[] = array(
+        'data' => l(t('Taxon pages'), $group['path'] .'/taxon-pages', array('attributes' => array('class' => $aclass))),
+        'class' => 'group-taxon-pages',
+      );
+      $aclass = 'current-group assignments';
+      if (preg_match('@/class/[0-9]+/assignment/[0-9]+@i', $current_alias)) $aclass .= ' active';
+      $items[] = array(
+        'data' => l(t('Assignments'), $group['path'] .'/assignments', array('attributes' => array('class' => $aclass))),
+        'class' => 'group-assignments',
+      );
+      $aclass = 'current-group members';
+      if (arg(0) == 'og' && (arg(1) == 'users' || arg(1) == 'manage' || arg(1) == 'unsubscribe' || arg(1) == 'subscribe' || arg(1) == 'invite')) $aclass .= ' active';
+      $items[] = array(
+        'data' => l(t('Members'), 'og/users/' . $group['id'], array('attributes' => array('class' => $aclass))),
+        'class' => 'group-members',
+      );
+      $aclass = 'current-group broadcast';
+      $broadcast = menu_get_item($group['path'] .'/broadcast');
+      if ($broadcast['access']) {
+        $items[] = array(
+          'data' => l(t('Send email'), $broadcast['href'], array('attributes' => array('class' => $aclass))),
+          'class' => 'group-broadcast',
+        );
+      }
+    }
+    $content .= theme('item_list', $items, NULL, 'ul', array('class' => 'class group-menu menu'));
+  }
+  return isset($content) ? $content : NULL;
+}
+/**
+ * Build subscription links for current block
+ */
+function _edulifedesks_alter_build_subscription_links() {
+  global $user;
+  $current_path = isset($_GET['q']) ? $_GET['q'] : 'home';
+  $output = '';
+  $links = array();
+  $node = og_get_group_context();
+  // Only show if have group context and user has access to view group
+  if ($node && module_grants_node_access('view', $node)) {
+    list($txt, $subscription) = og_subscriber_count_link($node);
+    if ($subscription == 'active' && og_is_group_admin($node, $user)) {
+      if (preg_match('@^og/users/[0-9]+/add_user$@i', $current_path)) {
+        $output .= l(t('Invite new members'), "og/invite/$node->nid", array('attributes' => array('class' => 'create invite-member')));
+      }
+      else {
+        $output .= l(t('Add new members'), 'og/users/' .$node->nid .'/add_user', array('attributes' => array('class' => 'create add-member')));
+      }
+    } elseif ($subscription == 'active' && og_is_group_member($node->nid, FALSE)) {
+      if ($node->og_selective == OG_CLOSED) {
+        $output .= '<h2 class="title">' . t('My membership') .'</h2>';
+        $output .= '<p>' . t('You may not leave this group because it is a <em>closed</em> group. You should request removal from a group administrator.') .'</p>';
+      }
+      $output = l(t('Delete your membership'), "og/unsubscribe/$node->nid/$user->uid", array('query' => 'destination=groups/my/activity', 'attributes' => array('class' => 'delete')));
+    }
+    elseif ($subscription == 'requested') {
+      $output .= l(t('Cancel membership request'), "og/unsubscribe/$node->nid/$user->uid", array('query' => 'destination=groups/my/activity', 'attributes' => array('class' => 'cancel')));;
+      $output .= '<p>' . t('Your membership request awaits approval.') .'</p>';
+    }
+    elseif ($user->uid > 0 && $node->og_selective == OG_MODERATED) {
+      $output .= l(t('Request membership'), 'og/subscribe/' . $node->nid, array('attributes' => array('class' => 'create', 'rel' => 'nofollow'), 'query' => drupal_get_destination()));
+    }
+    elseif ($user->uid > 0 && $node->og_selective == OG_OPEN) {
+      $output .= l(t('Join group'), 'og/subscribe/' . $node->nid, array('attributes' => array('class' => 'create', 'rel' => 'nofollow'), 'query' => drupal_get_destination()));
+    }
+    elseif ($user->uid > 0 && $node->og_selective == OG_INVITE_ONLY) {
+      $output .= '<p>' . t('This is an <em>invite only</em> group. Membership is managed exclusively by group administrators.') .'</p>';
+    }
+    elseif ($user->uid > 0 && $node->og_selective == OG_CLOSED) {
+      $output .= '<p>' . t('This is a <em>closed</em> group. Membership is managed exclusively by group administrators.') .'</p>';
+    }
+    elseif (!$user->uid) {
+      $dest = drupal_get_destination();
+      if (variable_get('user_register', 1) == 0) {
+        $output .= '<p>' . t('You must <a href="!login">login</a> in order to post into this group.', array('!login' => url("user/login", array('query' => $dest)))) .'</p>';
+      }
+      else {
+        $output .= '<p>' . t('You must <a href="!register">register</a> or <a href="!login">login</a> in order to post into this group.', array('!register' => url("user/register", array('query' => $dest)), '!login' => url("user/login", array('query' => $dest)))) .'</p>';
+      }
+    }
+  }
+  return $output;
+}
+/**
+ * Implementation of hook_menu_alter().
+ */
+function edulifedesks_alter_menu_alter(&$items) {
+  // change access control of role configuration to use og/users/$node/add_user callback
+  if (is_array($items['og/users/%node/roles'])) {
+    $items['og/users/%node/roles']['access callback'] = 'og_is_group_admin';
+  }
+  if (is_array($items['node/%node/og/vocab'])) {
+    $items['node/%node/og/vocab']['access callback'] = '_edulifedesks_alter_og_vocab_determine_access';
+  }
+  // change access callback of workflow menu task to check if node is published or archived, and custom title callback to adjust accordingly
+  if (is_array($items['node/%node/workflow'])) {
+    $items['node/%node/workflow']['access callback'] = '_edulifedesks_alter_workflow_node_tab_access';
+    $items['node/%node/workflow']['title arguments'] = array(1);
+    $items['node/%node/workflow']['title callback'] = '_edulifedesks_alter_workflow_node_tab_title';
+  }
+  // Unset og member faces menu item, not required
+  if (is_array($items['og/users/%node/faces'])) {
+    unset($items['og/users/%node/faces']);
+  }
+  // Prevent users accessing shared posts tab -not required
+  if (is_array($items['user/%user/shared-posts'])) {
+    $items['user/%user/shared-posts']['access callback'] = FALSE;
+  }
+  // Allow site maintainers to access default content management, without giving them administer nodes permissions
+  if (is_array($items['admin/content/node'])) {
+    $items['admin/content/node']['access callback'] = '_edulifedesks_alter_admin_content_access';
+  }
+  return $items;
+}
+/**
+ * Override access callback for admin/content/node
+ * Allow site maintainers to access default content listings without requiring administer node permissions
+ */
+function _edulifedesks_alter_admin_content_access() {
+  if (user_access('administer nodes') || user_access('create home content')) {
+    return TRUE;
+  }
+  return FALSE;
+}
+/**
+ * Override access callback for og_vocab
+ * Prevent group admin's getting access by default. User must have'administer own group vocabulary permissions'.
+ */
+function _edulifedesks_alter_og_vocab_determine_access($node, $perm) {
+  return (og_is_group_member($node->nid) && (user_access($perm) || user_access('administer organic groups')));
+}
+/**
+ * Override access callback for workflow tab
+ * Only show if user has access and if its moderated submission workflow (wid: 1) and node is published (state id: 6), or if its not moderated submission workflow.
+ */
+function _edulifedesks_alter_workflow_node_tab_access($node = NULL) {
+  global $user;
+  $wid = workflow_get_workflow_for_type($node->type);
+  if ($wid === FALSE) {
+    // No workflow associated with this node type.
+    return FALSE;
+  }
+  $roles = array_keys($user->roles);
+  // 4 is instructor
+  // 11 is teaching assistant
+  // 5 is student
+  if ($node->uid == $user->uid) {
+    $roles = array_merge(array('author'), $roles);
+  }
+  $workflow = db_fetch_object(db_query("SELECT * FROM {workflows} WHERE wid = %d", $wid));
+  $allowed_roles = $workflow->tab_roles ? explode(',', $workflow->tab_roles) : array();
+  if (user_access('administer nodes') || array_intersect($roles, $allowed_roles)) {
+    if ($wid != 1) { // exclude other workflows
+      return TRUE;
+    }
+    else { // workflow = moderated submission (taxon pages)
+      switch ($node->_workflow) {
+        case 3: // Ready for review
+        case 5: // Approved
+        case 6: // Published to LifeDesks
+        case 20: // Published to LifeDesks and EOL
+        case 7: // Archived
+          return TRUE;
+        default:
+          return FALSE;
+      }
+    }
+  }
+  else {
+    return FALSE;
+  }
+}
+/**
+ * Override title callback for workflow tab
+ * Return 'unpublish' if its moderated submission workflow (wid: 1) and node is published (state id: 6).
+ */
+function _edulifedesks_alter_workflow_node_tab_title($node = NULL) {
+  $wid = workflow_get_workflow_for_type($node->type);
+  if ($wid == 1) {
+    switch ($node->_workflow) {
+      case 3: // Ready for review
+        return 'Approve';
+      case 5: // Approve
+        return 'Publish';
+      case 6: // Published to LifeDesks
+      case 20: // Published to EOL and LifeDesks
+        return 'Unpublish';
+      case 7: // Archived
+        return 'Restore from archive';
+      default:
+        return 'Workflow';
+    }
+  }
+  else {
+    return 'Workflow';
+  }
+}
+/**
+ * Implementation of hook_menu_link_alter().
+ */
+function edulifedesks_alter_menu_link_alter(&$item, $menu) {
+  if (strpos($item['link_path'], 'uservoice.com') > 0 && $item['menu_name'] == 'secondary-links') {
+    $item['weight'] = -47;
+  }
+}
+/**
+ * Implementation of hook_form_alter().
+ */
+function edulifedesks_alter_form_alter(&$form, $form_state, $form_id) {
+  global $user;
+
+  // Redirect to group home page on delete of group posts
+  if ($form_id == 'module_grants_node_delete_confirm' || $form_id == '_module_grants_node_delete_confirm' || $form_id == 'node_delete_confirm') {
+    foreach ($form['#parameters'] as $p) {
+      // Add custom submit handler if node is group post
+      if (is_object($p) && isset($p->og_groups)) {
+        $form['#submit'][] = '_edulifedesks_node_edit_form_delete';
+        break;
+      }
+    }
+  }
+
+  // Alter labels for og fields on all forms
+  if (isset($form['og_description'])) $form['og_description']['#title'] = t('Short description');
+  if (isset($form['og_nodeapi']['visible']['og_groups_visible']['#title'])) $form['og_nodeapi']['visible']['og_groups_visible']['#title'] = t('Group');
+  if (isset($form['og_nodeapi']['visible']['og_public']['#description'])) {
+    $form['og_nodeapi']['visible']['og_public']['#description'] = t("Check <em>Public</em> to show this page, when published, to everyone. Leave unchecked to show published pages only to members of the checked or listed groups.");
+  }
+  if (isset($form['og_private'])) {
+    $form['og_private']['#description'] = t('Check if this group should only be visible to its members. Disabled if the group is set to <em>List in Directory</em> or <em>Membership requests: open</em>.');
+  }
+  if (isset($form['og_directory'])) {
+    $form['og_directory']['#description'] = t('Check to make this group appear in any public group listings. This option is disabled if <em>Private group</em> is selected.');
+  }
+  if (isset($form['og_selective'])) {
+    $form['og_selective']['#description'] = t('Indicate how membership requests should be handled for this group. When you select <em>closed</em>, users will not be able to join <strong>or</strong> leave.');
+  }
+
+  // Set node to public for newly added group posts, if group is not private
+  if (isset($form['og_nodeapi']['visible']['og_public']) && isset($form['og_initial_groups']['#value'][0])) {
+    $private = db_result(db_query('SELECT og_private FROM {og} WHERE nid = %d', array($form['og_initial_groups']['#value'][0])));
+    if (!$private) {
+      $form['og_nodeapi']['visible']['og_public']['#default_value'] = 1;
+    }
+  }
+
+  if (isset($form['#id']) && $form['#id'] == 'node-form' && $form['nid']['#value'] != NULL) {
+    // Alter all node edit forms
+    // If revisioning module is not creating a new revision in pending mode (moderation) then stop redirect to revision view
+    if (!$form['#node']->revision_moderation) {
+      $form['buttons']['submit']['#submit'][] = '_edulifedesks_node_edit_form_submit';
+    }
+    // Modify text of delete button, if it exists, to override Module Grants hook_form_alter
+    // Currently users are not aware of revisions so we remove reference to them and assume delete means delete all revisions.
+    if (isset($form['buttons']['delete'])) {
+      $form['buttons']['delete']['#value'] = t('Delete');
+    }
+  }
+  elseif (isset($form['#id']) && $form['#id'] == 'node-form' && is_null($form['nid']['#value'])) {
+    // Alter node add forms
+    // Hide delete button, node shouldn't exist yet
+    if (isset($form['buttons']['delete'])) {
+      $form['buttons']['delete']['#access'] = FALSE;
+    }
+
+    // Add username to agent field on creation of any node that contains the agent author field or the compiler field.
+    if (isset($form['#field_info']['field_agent_author']) || isset($form['#field_info']['field_agent_compiler'])) {
+      $profile = content_profile_load('profile', $form['#node']->uid);
+      $author = '';
+      if (!empty($profile->field_vcard_given[0]['value'])) $author .= $profile->field_vcard_given[0]['value'];
+      if (!empty($profile->field_vcard_family[0]['value'])) $author .= ' ' . $profile->field_vcard_family[0]['value'];
+      $author = trim($author);
+      if (empty($author)) $author = $profile->name;
+
+      // Add user to author (current user) or compiler field if exists.
+      if (!empty($form['#field_info']['field_agent_author']['display_settings']['parent'])) {
+        $form[$form['#field_info']['field_agent_author']['display_settings']['parent']]['field_agent_author'][0]['#default_value']['value'] = $author;
+      }
+      elseif (!empty($form['field_agent_author'])) {
+        $form['field_agent_author'][0]['#default_value']['value'] = $author;
+      }
+      elseif (!empty($form['group_attribution']['field_agent_author'])) {
+        // Hack because parent may be missing in form variable.
+        // TODO: Understand why 'parent' not reliable #field_info item.
+        $form['group_attribution']['field_agent_author'][0]['#default_value']['value'] = $author;
+      }
+      elseif (!empty($form['#field_info']['field_agent_compiler']['display_settings']['parent'])) {
+        $form[$form['#field_info']['field_agent_compiler']['display_settings']['parent']]['field_agent_compiler'][0]['#default_value']['value'] = $author;
+      }
+      elseif (!empty($form['field_agent_compiler'])) {
+        $form['field_agent_compiler'][0]['#default_value']['value'] = $author;
+      }
+      elseif (!empty($form['group_attribution']['field_agent_compiler'])) {
+        // Hack because parent is missing in form variable.
+        // TODO: Understand why 'parent' not reliable #field_info item.
+        $form['group_attribution']['field_agent_compiler'][0]['#default_value']['value'] = $author;
+      }
+      unset($author);
+    }
+  }
+
+  // Alter forms by id
+  switch ($form_id) {
+    case 'user_register':
+      $form['#redirect'] = 'welcome';
+      break;
+    case 'user_profile_form':
+      if (isset($form['signature_settings'])) $form['signature_settings']['signature_format']['#access'] = user_access('administer content types');
+      break;
+    case 'user_login_block':
+      // Used in conjunction with learning theme user-login-block.tpl.php and learning.js
+      $form['name']['#size'] = 30;
+      $form['pass']['#size'] = 30;
+      // Customize links
+      $items = array();
+      $items[] = l(t('Forgot your password?'), 'user/password', array('attributes' => array('title' => t('Request new password via e-mail.'))));
+      /** if (variable_get('user_register', 1)) {
+        $items[] = l(t('Register'), 'user/register', array('attributes' => array('title' => t('Create a new user account.'))));
+      }*/
+      $form['links'] = array('#value' => theme('item_list', $items));
+      //$form['#redirect'] = 'groups/my/activity';
+      $form['#action'] = url($_GET['q']);
+      break;
+
+    case 'imagefield_assist_properties_form':
+      $form['lightbox']['#type'] = 'hidden';
+      unset($form['size_label']['#options']['fullsize']);
+      $form['insertmode'] = array(
+        '#type' => 'hidden',
+        '#value' => 'filtertag'
+      );
+      break;
+
+    case 'assignment_node_form':
+      // Hide revision log
+      if (isset($form['revision_information'])) $form['revision_information']['#access'] = user_access('administer content types');
+      break;
+
+    case 'evaluation_node_form':
+
+      // Assign node reference node id
+      if (arg(1) == 'add' && arg(2) == 'evaluation') {
+        $ref_nid = arg(3);
+        $form['field_reviewed_content'][0]['#default_value']['nid'] = $ref_nid;
+      }
+      elseif ($form['field_reviewed_content'][0]['#default_value']['nid'] != NULL) {
+        $ref_nid = $form['field_reviewed_content'][0]['#default_value']['nid'];
+      }
+
+      if (!empty($ref_nid)) {
+        // Add link to reviewed content
+        $ref_node_title = _edulifedesks_alter_get_node_title($ref_nid);
+        if (!$ref_node_title) $ref_node_title = '...';
+        $caption = check_plain($ref_node_title);
+        $author = '';
+        if ($ref_node_author = _edulifedesks_alter_get_node_author($ref_nid)) {
+          $author = ' by ' . l($ref_node_author['name'], 'user/' . $ref_node_author['uid'], array('attributes' => array('rel' => 'lightmodal')));
+          $caption .= ' by ' . check_plain($ref_node_author['name']);
+        }
+        $form['body_field']['#prefix'] = '<h2>'. t('Evaluating: ') . l($ref_node_title, 'node/' . $ref_nid .'/view', array('attributes' => array('rel' => 'lightmodal[][' . $caption .']'))) . $author .'</h2>' . $form['body_field']['#prefix'];
+        // Restrict access to nodereference field (don't want users changing it)
+        $form['field_reviewed_content']['#access']  = user_access('administer content types');
+      }
+      else {
+        // No referenced content so give user access to choose content to review
+        $form['field_reviewed_content']['#access']  = TRUE;
+      }
+
+      // Modify form to improve usability
+      $form['shared_editing']['#title'] = t('Share this evaluation');
+      $form['shared_editing']['#description'] = t('Share this evaluation with the author of the content you are reviewing. You may also give other group members permission to view or edit this evaluation.');
+      $form['shared_editing']['#weight'] = -1;
+      $form['shared_editing']['#collapsed'] = FALSE;
+      $form['shared_editing']['private']['#description'] = t('If checked only those users listed as editors, or viewers below, will be allowed to view and/or edit this evaluation.');
+      $form['shared_editing']['edit']['#description'] = t('Select and add group members as editors to give them permission to edit this evaluation. You can later remove editors by checking the box against their name and selecting the <em>Remove editors</em> button, which will appear once editors have been added.');
+      $form['shared_editing']['view']['#description'] = t('Allow the author of the content you are reviewing to view this evaluation by selecting <em>Add author of reviewed content as viewer</em>. You may also give other group members permission to view this evaluation by selecting their username from the select box and selecting <em>Add viewer</em>. You can later remove a users permission to view the evaluation by checking the box against their name and selecting the <em>Remove viewers</em> button, which will appear once viewers are added.');
+
+      // Modify editor and viewer selection widgets
+      $userlist_edit[0] = "Select editor";
+      $userlist_view[0] = "Select viewer";
+      $users = db_query("SELECT DISTINCT u.uid, u.name FROM {users} u WHERE u.uid > 1");
+      while ($usr = db_fetch_object($users)) {
+        foreach ($form['og_initial_groups']['#value'] as $grp) {
+          if (_edulifedesks_alter_group_role_access('create evaluation content', $grp, $usr->uid)) {
+            $userlist_edit[$usr->name] = $usr->name;
+          }
+          if (og_is_group_member($grp, $include_admins = TRUE, $uid = $usr->uid)) {
+            $userlist_view[$usr->name] = $usr->name;
+          }
+        }
+      }
+      unset($form['shared_editing']['edit']['add_editor']);
+      unset($form['shared_editing']['view']['add_viewer']);
+      $form['shared_editing']['edit']['add_editor'] = array(
+        '#type' => 'select',
+        '#title' => t('Add editor'),
+        '#options' => $userlist_edit,
+        '#weight' => -12
+      );
+
+      if (!empty($ref_node_author)) {
+        // Create add author button if author exists
+        $form['shared_editing']['view']['add_author'] = array(
+          '#type' => 'hidden',
+          '#value' => $ref_node_author['name'],
+        );
+        $form['shared_editing']['view']['add_author_button'] = array(
+          '#type' => 'coherent_access_button',
+          '#label' => t('Add author of reviewed content as viewer'),
+          '#weight' => -11
+        );
+        $form['#after_build'][] = 'add_author_if_required';
+        $new_element = array_pop($form['#after_build']);
+        array_unshift($form['#after_build'], $new_element);
+      }
+      $form['shared_editing']['view']['add_viewer'] = array(
+        '#type' => 'select',
+        '#title' => t('Add viewer'),
+        '#options' => $userlist_view,
+        '#weight' => -10
+      );
+
+      // Hide Groups fieldset, irrelevent for evaluations, they should always be associated with another node and thus a group
+      if (isset($form['og_nodeapi'])) $form['og_nodeapi']['#access'] = user_access('administer content types');
+      //if (isset($form['revision_information'])) $form['revision_information']['#access'] = FALSE;
+      // $form['#redirect'] = 'node/' .$form['field_reviewed_content'][0]['#default_value']['nid'] .'/evaluation';
+      break;
+
+    case 'class_node_form':
+      // Set default values on add (not edit) class node that can't be configured through admin UI
+      if (arg(1) == 'add' && arg(2) == 'class') {
+        // Set OG Memberships to default to 'Moderated'
+        $form['og_selective']['#default_value'] = 1;
+      }
+      break;
+
+    case 'taxon_page_node_form':
+      // Only allow user to add scientific name when first add page.
+      // We don't show other fields because we don't want them to be able to upload images before we know the node id of the taxon page - L + E requirement that all images are attached to a page
+      if (arg(1) == 'add' && arg(2) == 'taxon-page') {
+        $hide_fields = array('workflow', 'taxonomy', 'comment_settings', 'attachments', 'language', 'group_references', 'group_attribution');
+        foreach ($form as $k => $v) {
+          if (preg_match('@^group_eol_@i', $k)) $hide_fields[] = $k;
+        }
+        // Set all CCK fields other then nomenclature fields to hidden
+        foreach ($form['#field_info'] as $field => $info) {
+          switch (TRUE) {
+            case preg_match('@^field_dwc_@i', $field):
+              break;
+            default:
+              $hide_fields[] = $field;
+          }
+        }
+        foreach ($hide_fields as $field) {
+          if (isset($form[$field])) $form[$field]['#access'] = FALSE;
+        }
+        // Set attribution to hidden instead of restricted access
+        // Hide default buttons
+        $form['buttons']['submit']['#access'] = FALSE;
+        $form['buttons']['preview']['#access'] = FALSE;
+        // Add custom submit button
+        $form['buttons']['add_edit'] = array(
+          '#type' => 'submit',
+          '#value' => t('Create page and add content'),
+          '#submit' => array('_edulifedesks_alter_submit_new_taxon_page'),
+        );
+      }
+      // Set field_dwc_scientificname to required
+      if (isset($form['field_dwc_scientificname'])) {
+        $form['field_dwc_scientificname'][0]['#required'] = TRUE;
+        $form['#field_info']['field_dwc_scientificname']['required'] = 1;
+        $form['field_dwc_scientificname']['#required'] = 1;
+      }
+      // Hide fields
+      if (isset($form['field_image_nid_s'])) $form['field_image_nid_s']['#access'] = user_access('administer content types');
+      if (isset($form['revision_information'])) $form['revision_information']['#access'] = user_access('administer content types');
+
+      // Open fieldsets that contain textarea fields that have content
+      foreach ($form as $fieldset => $elements) {
+        if (is_array($elements) && isset($elements['#type']) && $elements['#type'] == 'fieldset') {
+          foreach ($elements as $element => $contents) {
+            if (isset($contents[0]['#type']) && $contents[0]['#type'] == 'text_textarea_better_formats' && !empty($contents[0]['#default_value']['value'])) {
+              if (isset($form[$fieldset]['#collapsed']) && $form[$fieldset]['#collapsed'] === TRUE) $form[$fieldset]['#collapsed'] = FALSE;
+            }
+          }
+        }
+      }
+
+      break;
+
+    case 'profile_node_form':
+      if (isset($form['revision_information'])) $form['revision_information']['#access'] = user_access('administer content types');
+      break;
+
+    case 'ifa_upload_node_form':
+
+      // Hide fields in all form display contexts
+      if (isset($form['field_embedded_in_nodes'])) $form['field_embedded_in_nodes']['#access'] = user_access('administer content types');
+      if (isset($form['field_dwc_scientificname_s'])) $form['field_dwc_scientificname_s']['#access'] = user_access('administer content types');
+      if (isset($form['field_attached_to_nodes'])) {
+        // Hide field
+        $form['field_attached_to_nodes']['#access'] = user_access('administer content types');
+        // Check to see if node is attached to another node
+        foreach ($form['field_attached_to_nodes'] as $delta => $entry) {
+          if (is_array($entry) && !empty($entry['#default_value']['nid'])) {
+            // Load parent node
+            $parent_node = node_load($entry['#default_value']['nid']);
+            // Alter title and description to discourage users from adding scientifc or common names when image is of same taxon as parent node
+            $replace = array('%node_type' => str_replace('_', ' ', $parent_node->type), '%node_title' => $parent_node->title);
+            if (isset($form['field_dwc_scientificname'])) {
+              $form['field_dwc_scientificname']['#title'] = t('Scientific name (Leave blank unless required)');
+              $form['field_dwc_scientificname']['#description'] = t('Leave this field blank unless the image is of a different taxon than the %node_type: %node_title, to which this image is attached', $replace);
+              foreach ($form['field_dwc_scientificname'] as $k => $v) {
+                if (is_array($v) && isset($v['#description'])) {
+                  $form['field_dwc_scientificname'][$k]['#title'] .= ' (' . t('leave blank unless required') .')';
+                  $form['field_dwc_scientificname'][$k]['#description'] = t('Leave this field blank unless the image is of a different taxon than the %node_type: %node_title, to which this image is attached. ', $replace) .$form['field_dwc_scientificname'][$k]['#description'];
+                }
+              }
+            }
+            if (isset($form['group_common_names'])) {
+              $form['group_common_names']['#description'] = t('Leave this field blank unless the image is of a different taxon than the %node_type: %node_title, to which this image is attached. Add any common names to %node_type: %node_title if this image is of that taxon.', $replace);
+              $form['group_common_names']['field_dwc_vernacularname']['#title'] .= ' (' . t('leave blank unless required') .')';
+              foreach ($form['group_common_names']['field_dwc_vernacularname'] as $k => $v) {
+                if (is_array($v) && isset($v['#description'])) {
+                  $form['group_common_names']['field_dwc_vernacularname'][$k]['#description'] = '';
+                }
+              }
+            }
+            // Node is attached to a parent node (taxon page) so adjust workflow settings
+            if (isset($form['workflow'])) $form['workflow']['#description'] = t('Do not modify these status settings. This image is attached to %node_type: %node_title and will change state automatically when the %node_type status is changed. Any changes you make to the status below will be overridden when the %node_type status is changed.', $replace);
+            break;
+          }
+        }
+      }
+
+      // When form displayed in imagefield_assist context... (form only displayed when adding new nodes)
+      if (isset($form['#node']->form_display_mode) && $form['#node']->form_display_mode == 'imagefield_assist') {
+        if (isset($form['workflow'])) $form['workflow']['#access'] = user_access('administer content types');
+        if (isset($form['og_nodeapi'])) $form['og_nodeapi']['#access'] = user_access('administer content types');
+        if (isset($form['language'])) $form['language']['#access'] = user_access('administer content types');
+        if (isset($form['field_attached_to_nodes'])) $form['field_attached_to_nodes']['#access'] = user_access('administer content types');
+        if (isset($form['field_dc_description'])) $form['field_dc_description']['#access'] = user_access('administer content types');
+        if (isset($form['group_location'])) $form['group_location']['#access'] = user_access('administer content types');
+
+        // Add parent node (taxon page) id and group to new node if new upload
+        if (arg(2) > 0 && preg_match('@^[0-9]+$@i', arg(2)) && $form['nid']['#value'] == NULL) {
+          $ref_nid = arg(2);
+          $form['field_attached_to_nodes'][0]['#default_value']['nid'] = $ref_nid;
+          $group_nid = preg_match('@^[0-9]+$@i', arg(3)) ? arg(3) : 0;
+          if ($group_nid) $form['og_nodeapi']['visible']['og_groups']['#default_value'] = array($group_nid => $group_nid);
+        }
+      } else { //When not in imagefield assist context and new image check path for referenced node id and add to attached to node field
+        if (arg(1) == 'add' && arg(2) == 'ifa-upload' && preg_match('@^[0-9]+$@i', arg(3))) {
+          $ref_nid = arg(3);
+          // New image so won't be attached to anything yet so even if multiple values allowed can add to delta 0
+          $form['field_attached_to_nodes'][0]['#default_value']['nid'] = $ref_nid;
+        }
+      }
+      $form['#after_build'][] = '_edulifedesks_alter_imagefield_alter';
+      break;
+  }
+  // Add validate callback to any form that uses cc license and rights holder fields to check attribution provided for creative commons licenses
+  // Using callback instead of nodeapi, because apparently nodeapi validate op is skipped if custom callbacks are present (???)
+  if ($form['#id'] == 'node-form' && isset($form['#field_info']['field_cc_license'])) {
+    $form['#validate'][] = '_edulifedesks_alter_validate_attribution';
+  }
+  // Add custom validation callback to any node form that contains the scientific name field
+  if ($form['#id'] == 'node-form' && isset($form['#field_info']['field_dwc_scientificname'])) {
+    $form['#validate'][] = '_edulifedesks_alter_validate_scientificname';
+  }
+}
+/**
+ * Custom after build function to alter imagefield CCK widget
+ */
+function _edulifedesks_alter_imagefield_alter($form, &$form_state) {
+  // Change button label
+  $form['field_ifa_upload'][0]['filefield_remove']['#value'] = 'Replace image';
+  return $form;
+}
+/**
+ * Custom after build function to add author as shared viewer of evalution node
+ */
+function add_author_if_required($form, &$form_state) {
+  if ($form['shared_editing']['view']['add_author_button']['#value']) {
+    $form['shared_editing']['view']['add_viewer']['#value'] = $form['shared_editing']['view']['add_author']['#value'];
+    $form['shared_editing']['view']['add_viewer_button']['#value'] = TRUE;
+  }
+  return $form;
+}
+/**
+ * Custom submit callback for node delete confirm forms.
+ */
+function _edulifedesks_node_edit_form_delete($form, &$form_state) {
+
+  $paths = array(
+    'assignment' => '/assignments',
+    'taxon_page' => '/taxon-pages',
+  );
+  foreach ($form['#parameters'] as $p) {
+    if (is_object($p) && isset($p->og_groups)) {
+      foreach ($p->og_groups as $gid) {
+        $path = 'node/' . $gid;
+        break; // Break out of each group, only need first group - should only be one.
+      }
+      if (isset($p->type)) {
+        if (!empty($paths[$p->type])) {
+          // Add content type listing page if exists
+          $path .= $paths[$p->type];
+          break; // Break out of foreach parameter, we've got path
+        }
+        elseif (isset($p->field_attached_to_nodes)) {
+          // Redirect to attached to node, e.g. for images
+          foreach ($p->field_attached_to_nodes as $node) {
+            if (!empty($node['nid'])) {
+              $path = 'node/' .$node['nid'];
+              break; // Break out of foreach attached_to_nodes
+            }
+          }
+        }
+        elseif (isset($p->field_reviewed_content)) {
+          // Redirect to attached to node, e.g. for images
+          foreach ($p->field_reviewed_content as $node) {
+            if (!empty($node['nid'])) {
+              $path = 'node/' .$node['nid'];
+              break; // Break out of foreach attached_to_nodes
+            }
+          }
+        }
+      }
+    }
+  }
+  if (!empty($path)) {
+    $form_state['redirect'] = $path;
+  }
+}
+/**
+ * Custom submit button submit callback for node edit forms.
+ */
+function _edulifedesks_node_edit_form_submit($form, &$form_state) {
+  // prevent redirect to revision view
+  $form_state['redirect'] = 'node/' . $form_state['nid'];
+}
+/**
+ * Custom submit callback for new taxon pages
+ */
+function _edulifedesks_alter_submit_new_taxon_page($form, &$form_state) {
+  // call default node save/submit function
+  node_form_submit($form, $form_state);
+  // redirect to edit page and anchor
+  $anchor = 'content';
+  if ($_REQUEST['destination']) {
+    // if another redirect exists then add it to the url, it will be applied when user saves edit form
+    $query = array('destination' => $_REQUEST['destination']);
+    unset($_REQUEST['destination']);
+  } else {
+    $query = NULL;
+  }
+  $form_state['redirect'] = array('node/'. $form_state['nid']. '/edit', $query, $anchor);
+}
+/**
+ * Custom validate callback for node forms that contain cc license.
+ */
+function _edulifedesks_alter_validate_attribution($form, &$form_state) {
+  // Check rights holder field is present and that it has a value if  cc license includes attribution
+  if (!array_key_exists('group_attribution', $form) || (isset($form['group_attribution']) && !array_key_exists('field_dc_rightsholder', $form['group_attribution']))) {
+    form_error($form['field_cc_license'], t('Missing rights holder field. When choosing Creative Commons licenses with <em>attribution</em>, you must specify who the reproduction rights holder is. Notify your site administrator that this field is missing. Select <em>Public Domain Dedication</em> to continue.'));
+    //form_set_value($form['field_cc_license'], 'pd', $form_state);
+  } else if (preg_match('#^by.*#i', $form['field_cc_license']['#value']['value']) && !$form['group_attribution']['field_dc_rightsholder'][0]['#value']['value']) {
+    form_error($form['group_attribution']['field_dc_rightsholder'], t('Rights holder field is required when choosing Creative Commons licenses with attribution. Please enter the name of the person or organisation who owns the reproduction rights of this content.'));
+  }
+}
+/**
+ * Custom validate callback for node forms that contain scientific name field.
+ */
+function _edulifedesks_alter_validate_scientificname($form, &$form_state) {
+  if ($form_state['clicked_button']['#submit'][0] != 'node_form_delete_submit') {
+    if (!empty($form_state['values']['field_dwc_scientificname'])) {
+      foreach ($form_state['values']['field_dwc_scientificname'] as $name) {
+        if (preg_match('/^[A-z]{1,2}[.]?[ ]+/i', $name['value'])) {
+          drupal_set_message(t("The scientific name %scientificname does not appear to be fully formed. If you have used abbreviations we recommend that you replace them with the full name, so that the taxon can be correctly placed.", array('%scientificname' => $name['value'])), 'warning');
+        }
+      }
+    }
+    // Check higher classification has been provided
+    $classification_fields = array(
+      'field_dwc_kingdom' => FALSE,
+      'field_dwc_phylum' => FALSE,
+      'field_dwc_class' => FALSE,
+      'field_dwc_order' => FALSE,
+      'field_dwc_family' => FALSE,
+    );
+    foreach ($form_state['values'] as $field_name => $value) {
+      if (array_key_exists($field_name, $classification_fields)) {
+        if (!empty($value[0]['value'])) {
+          $classification_fields[$field_name] = TRUE;
+        } else {
+          unset($classification_fields[$field_name]);
+        }
+      }
+    }
+    if (!count($classification_fields) > 0) {
+      drupal_set_message(t("We highly recommended that you provide details of the biological classification of the taxon you are describing, so that the taxon can be correctly placed."), 'warning');
+    }
+  }
+}
+/**
+ * Implementation of hook_og_links_alter($links, $group_node)
+ */
+function edulifedesks_alter_og_links_alter(&$links, $group_node) {
+  // Remove unwanted links from Group details block
+  $hide_types = array('evaluation');
+  foreach ($hide_types as $type) {
+    unset($links['create_' .$type]);
+  }
+}
+/**
+ * Implementation of nodeapi
+ */
+function edulifedesks_alter_nodeapi(&$node, $op, $a3 = NULL, $a4 = NULL) {
+  global $user;
+
+  if (module_exists('imagefield_assist')) {
+    switch ($op) {
+      case 'presave':
+        if (isset($node->field_image_nid_s)) {
+          $previously_linked_images = array();
+          if ($node->nid) {
+            $previously_linked_images = $node->field_image_nid_s;
+          }
+          unset($node->field_image_nid_s);
+          $node->field_image_nid_s = array();
+          // Get filter tags and data to pass to image nodes
+          $macros = _edulifedesks_alter_get_filter_tags($node);
+          foreach ($macros as $macro => $attributes) {
+            // Add image node id's to parent node (e.g. taxon page)
+            $node->field_image_nid_s[] = array('value' => $attributes['imagenid']);
+            // Remove image node id from $previously_linked_images if image is still embedded. Later will use this array to delete parent node ids from image nodes.
+            foreach ($previously_linked_images as $delta => $data) {
+              if ($data['value'] == $attributes['imagenid']) {
+                unset($previously_linked_images[$delta]);
+              }
+            }
+          }
+          // Remove parent node id from image nodes as determined by remaining nodes in $previously_linked_images array
+          foreach ($previously_linked_images as $delta => $data) {
+            _edulifedesks_alter_update_image_node($data['value'], $node->nid, 'remove');
+          }
+        }
+        break;
+      case 'insert':
+      case 'update':
+        if (isset($node->field_image_nid_s)) {
+          // Add 'parent node' id to image nodes if images embedded in 'parent node' using imagefield_assist
+          foreach ($node->field_image_nid_s as $data) {
+            _edulifedesks_alter_update_image_node($data['value'], $node->nid, 'add');
+          }
+        }
+      break;
+    }
+  }
+
+  switch ($op) {
+    case 'insert':
+      //add a vocab and assign it to a newly created group
+      if($node->type == 'class') {
+        $vocab['name'] = $node->title . ' ' . t('keywords');
+        $content_types = node_get_types('names');
+        unset($content_types['profile']);
+        unset($content_types['class']);
+        unset($content_types['page']);
+        unset($content_types['story']);
+        unset($content_types['home']);
+        unset($content_types['slide']);
+        $vocab['nodes'] = $content_types;
+        $vocab['tags'] = 1;
+
+        taxonomy_save_vocabulary($vocab);
+        og_vocab_write_record($node->nid, $vocab['vid']);
+      }
+      break;
+
+    case 'delete':
+      if($node->type == 'class') {
+        $vocabs = og_vocab_get_vocabularies($node->nid);
+        foreach($vocabs as $vocab) {
+        taxonomy_del_vocabulary($vocab->vid);
+        }
+      }
+      break;
+    case 'view':
+      if (module_exists('og') && og_is_group_type($node->type)) {
+        $node->content['og_mission']['#weight'] = 20;
+        $node->content['view']['#weight'] = 50;
+      }
+      break;
+  }
+}
+/**
+ * Extract and parse node fields for imagefield_assist filter tags
+ */
+function _edulifedesks_alter_get_filter_tags($node) {
+  // Get content to parse from fields
+  $content = array();
+  foreach ($node as $index => $element) {
+    // All fields that could use WYSIWYG and imagefield_assist are custom CCK fields which have array index starting with 'field_...' or body with array index 'body'.
+    if ($index == 'body' && $element) {
+      $content[$index] = $element;
+    } else if (preg_match('/^field_.*/i', $index) && isset($element[0]['value'])) {
+      $content[$index] = $element[0]['value'];
+    }
+  }
+  // Get imagefield_assist filter tags (macros) from field content
+  foreach ($content as $index => $value) {
+    $text .= $value .' ';
+  }
+  return imagefield_assist_get_macros($text);
+}
+/**
+ * Updates nodes of images embedded in 'parent' node, with data from 'parent' node
+ */
+function _edulifedesks_alter_update_image_node($imagenid, $parentnid, $op) {
+  if (!$imagenid || !$parentnid || !$op) return;
+  $node = node_load($imagenid, NULL, TRUE);
+  foreach ($node->field_embedded_in_nodes as $delta => $data) {
+    if ($parentnid == $data['value']) {
+      switch ($op) {
+        case 'add':
+          return; // Parent node id already exists in image node so return without saving image node
+        case 'remove':
+          unset($node->field_embedded_in_nodes[$delta]);
+          node_save($node);
+          return;
+      }
+    }
+  }
+  // If we've got this far then parent node id is not yet in image node CCK field and op should be 'add'
+  if ($op == 'add') {
+    $node->field_embedded_in_nodes[] = array('value' => $parentnid);
+    node_save($node);
+  }
+  return;
+}
+/**
+ * Implementation of og_access_grants_alter()
+ *
+ * Requires Module Grants (MG) to AND grants in order to successfully control access.
+ * For consistent access control, all content types (except groups e.g. class) should
+ * have a workflow applied.
+ */
+function edulifedesks_alter_og_access_grants_alter(&$grants, $node) {
+  if (($node->_workflow || $node->workflow) && !og_is_group_type($node->type)) {
+    /**
+     * Module Grants ANDs so if og_subscriber and og_admin grants
+     * return true for any nodes that are not groups and are assigned
+     * to a workflow then workflow will control access.
+     */
+    foreach ($grants as $key => $grant) {
+      switch ($grant['realm']) {
+        case 'og_subscriber':
+        case 'og_admin':
+          $grants[$key]['grant_view'] = 1;
+          $grants[$key]['grant_update'] = 1;
+          $grants[$key]['grant_delete'] = 1;
+          break;
+        case 'og_public':
+          /**
+           * If post is private then non group members should not get access regardless of workflow.
+           * So don't modify og_public grant. Let it do its thing. If both og_public and workflow
+           * grant access then user will get access, otherwise they won't. This is how it should be.
+           */
+          break;
+      }
+    }
+  }
+}
+//*/
+/**
+ * Implementation of hook_views_api().
+ */
+function edulifedesks_alter_views_api() {
+  return array(
+    'api' => 2,
+  );
+}
+/**
+ * Implementation of hook_cron
+ */
+function edulifedesks_alter_cron() {
+  if (variable_get('drupal_http_request_fails', TRUE)) {
+    variable_set('drupal_http_request_fails', FALSE);
+  }
+}
+/**
+ * Implementation of preprocess_hook()
+ */
+function edulifedesks_alter_preprocess_content_field(&$field) {
+  global $base_url;
+  switch ($field['field_name']) {
+    case 'field_cc_license':
+      // Convert Creative Commons (CC) select text field to an icon on display.
+      // CC field is CCK field with allowed values:
+      // return array(
+      //  'pd' => 'Public Domain Dedication',
+      //  'by' => 'Attribution',
+      //  'by-sa' => 'Attribution Share Alike',
+      //  'by-nc' => 'Attribution Non‐commercial',
+      //  'by-nc-sa' => 'Attribution Non‐commercial Share Alike',
+      //  );
+      $icon_name = $field['items'][0]['value'];
+      $cc_url = 'http://creativecommons.org/licenses/';
+      $cc_version = '3.0';
+      switch ($field['items'][0]['value']) {
+        case 'pd':
+          $cc_url .= 'publicdomain/deed.en';
+          break;
+        default:
+          $cc_url .= $field['items'][0]['value'] .'/' .$cc_version;
+          break;
+      }
+      $icon_src = $base_url .'/' .drupal_get_path('module', 'edulifedesks_alter') .'/images/' . $icon_name . '.png';
+      $field['items'][0]['view'] = l('<img src="' .$icon_src .'" alt="' .$field['items'][0]['view'] .'"/>', $cc_url, array('html' => TRUE, 'attributes' => array('class' => $icon_name, 'rel' => 'lightframe[' . $field['items'][0]['view'] .']')));
+      break;
+  }
+}
+/**
+ * Implementation of hook_theme_registry_alter
+ *
+ * @param $theme_registry
+ *
+ */
+function edulifedesks_alter_theme_registry_alter(&$theme_registry) {
+//if exists, modify module grants monitor theme output
+  if (!empty($theme_registry['nodes_summary'])) {
+    $theme_registry['nodes_summary']['function'] = 'edulifedesks_alter_nodes_summary';
+  }
+}
+/**
+ * Theme cloned from Module Grants Monitor and customised
+ *
+ * Customisations (lwalley):
+ * 1. remove content types that are not real pages (home, slides) unless user has permissions to create them
+ * 2. add group links to group posts
+ * 3. (add evaluation link if exists and access given)
+ *
+ * Theme the passed-in nodes as a table.
+ *
+ * Uses the following subthemes:
+ * o 'table_nodes', falling back to theme.inc/theme_table() if not defined
+ * o 'username', i.e. theme.inc/theme_username()
+ *
+ * @param $nodes
+ *   Array of nodes to display.
+ * @return
+ *   Themed table HTML or a paragraph saying 'No content found.' if the supplied
+ *   array is empty.
+ *
+ * @ingroup themeable
+ */
+function edulifedesks_alter_nodes_summary($nodes) {
+  global $user;
+  $css_path = drupal_get_path('module', 'module_grants') .'/module_grants_monitor.css';
+  drupal_add_css($css_path, 'module', 'all', FALSE);
+  if (!empty($nodes)) {
+    // Note the specification of fields doesn't seem to work properly
+    // See theme.inc/theme_table(), which uses tablesort.inc/tablesort_header()
+
+    // We want to remove content types that are not relevant depending on role -lwalley
+    $show_types = array('home' => FALSE,'slide' => FALSE);
+    // Check if current user has create perms for content types we want to hide (note role dependent on group: user_access doesn't for group roles) -lwalley
+    foreach ($show_types as $type => $show) {
+      $show_types[$type] = user_access('create ' .$type .' content');
+    }
+    $header = array(
+      array('data' => t('Title'), 'field' => 'r.title'),
+      array('data' => t('Type'), 'field' => 'n.type'),
+      array('data' => t('Creator'), 'field' => 'n.uid'),
+      array('data' => t('Last updated'), 'field' => 'timestamp', 'sort' => 'desc'),
+      array('data' => t('By'), 'field' => 'r.uid'),
+      array('data' => t('Published?'), 'field' => 'status')
+    );
+    // Taxonomy terms switched off in Module Grants site configuration -lwalley
+    $show_taxonomy_terms = module_exists('taxonomy') &&
+      (count(taxonomy_get_vocabularies()) > 0) && variable_get("show_taxonomy_terms", TRUE);
+    $show_workflow_state = module_exists('workflow');
+    if ($show_taxonomy_terms) {
+      $header[] = array('data' => t('Term'), 'field' => 'term');
+    }
+    if ($show_workflow_state) {
+      $header[] = array('data' => t('Workflow state'), 'field' => 'ws.state');
+    }
+    $rows = array();
+    foreach ($nodes as $node) {
+      // If need to hide content types then don't create row array -lwalley
+      if (!array_key_exists($node->type, $show_types) || $show_types[$node->type]) {
+        $nid = $node->nid;
+        // Hmm... maybe we should always go to node/$nid and rely on Smart tabs to pick the tab
+        $page_tab = (user_may_view_revisions($node) && get_number_of_revisions($nid) > 1) ? '/revisions' : '';
+
+        $row = array(
+          l($node->title, 'node/'. $nid . $page_tab),
+          check_plain(node_get_types('name', $node)),
+          theme('username', user_load(array('uid' => $node->creator_uid))),
+          format_date($node->timestamp),
+          theme('username', user_load(array('uid' => $node->uid))),
+          $node->status ? t('Yes') : t('No')
+        );
+        if ($show_taxonomy_terms) {
+          $row[] = empty($node->term) ? '' : check_plain($node->term);
+        }
+        if ($show_workflow_state) {
+          $row[] = empty($node->state) ? t('No state') : check_plain($node->state);
+        }
+        $rows[] = $row;
+      }
+    }
+    $attributes = array('class' => 'table-nodes');
+    return theme(array('table_nodes', 'table'), $header, $rows, $attributes, $caption = NULL);
+  }
+  return '<p>'. t('No content found.') .'</p>';
+}
+/**
+ * Helper function to set group context called by og_user_roles.module
+ */
+function _edulifedesks_alter_get_group_context() {
+  $item = og_user_roles_menu_get_item();
+  if (isset($item['load_functions'][1]) && $item['load_functions'][1] == 'views_arg_load' && $item['map'][0] == 'node' && !empty($item['map'][1])) {
+    $node = node_load($item['map'][1]);
+    if (og_is_group_type($node->type)) {
+      return $node;
+    }
+  }
+}
+/**
+* Helper function to truncate the string if it is beyond a certain $length and append with an ellipses or custom text
+* $length is the number of characters allowed before truncating
+* $append is appended to the truncated string
+*/
+function _edulifedesks_alter_truncate($string = '', $length = 30, $append = '...') {
+  return strlen($string) > $length ? trim(substr($string, 0, $length)) . $append : $string;
+}
+/**
+ * Helper function to get node type avoiding node_load
+ */
+function _edulifedesks_alter_get_node_type($nid) {
+  return db_result(db_query('SELECT type FROM {node} WHERE nid = %d',$nid));
+}
+/**
+ * Helper function to get node title avoiding node_load
+ */
+function _edulifedesks_alter_get_node_title($nid) {
+  return db_result(db_query('SELECT title FROM {node} WHERE nid = %d',$nid));
+}
+/**
+ * Helper function to get node author username avoiding node_load
+ */
+function _edulifedesks_alter_get_node_author($nid) {
+  $uid = db_result(db_query('SELECT uid FROM {node} WHERE nid = %d',$nid));
+  if ($uid) {
+    $author = array(
+      'uid' => $uid,
+      'name' => db_result(db_query('SELECT name FROM {users} WHERE uid = %d', $uid))
+    );
+  }
+  if (isset($author)) return $author;
+  return;
+}
+/**
+ * Helper function to return user access for permissions that are determined by a group role
+ */
+function _edulifedesks_alter_group_role_access($perm, $gid, $uid) {
+  $roles = og_user_roles_get_roles_by_group($gid, $uid);
+  if (!$roles) return FALSE;
+  foreach ($roles as $rid) {
+    $result = db_result(db_query('SELECT perm FROM {permission} WHERE rid = %d', $rid));
+    $perms = explode(', ', $result);
+    if (in_array($perm, $perms)) return TRUE;
+  }
+  return FALSE;
+}
+/**
+ * Dirty hack for missing OG User Role grants when no OG Context
+ *
+ * When listing groups' nodes for multiple groups, i.e. outside of group context, OG User Roles are not
+ * applied to workflow_access grants because in each row (node) of the listing the current user may have
+ * a different role (different grant id). Only way to check workflow_access grant correctly is to use a nested
+ * select that takes the current rows group id and gets the current users role for that group. So here we are
+ * modifying the relevant views query and count_query string after db_rewrite_sql hooks have been applied.
+ *
+ * This custom function is called directly from a hack of view.inc view->execute() function, line 702
+ */
+function _edulifedesks_alter_ogur_node_access_fix(&$query, $view) {
+  if (module_exists('og_user_roles') && array_key_exists('group_nid', $view->relationship) && !og_get_group_context() && stripos($query, 'og_ancestry.group_nid')) {
+    global $user;
+    // Add nested select for ogur roles into WHERE clauses generated by node_db_rewrite_sql() and module_grants_db_rewrite()
+    $inserts = array(
+      "#\(na.gid = [0-9]+ AND na.realm = 'workflow_access'\)#i" => " OR (na.gid IN (SELECT ogur.rid AS ogur_rid FROM og_users_roles ogur WHERE ogur.gid=og_ancestry.group_nid AND ogur.uid=$user->uid) AND na.realm = 'workflow_access')",
+      "#\(gid=[0-9]+ AND realm='workflow_access'\)#i" => " OR (gid IN (SELECT ogur.rid AS ogur_rid FROM og_users_roles ogur WHERE ogur.gid=og_ancestry.group_nid AND ogur.uid=$user->uid) AND realm='workflow_access')",
+    );
+    foreach ($inserts as $pattern => $insert) {
+      preg_match($pattern, $query, $matches);
+      if (count($matches) > 0) {
+        $parts = explode($matches[0], $query, 2);
+        $query = $parts[0] .$matches[0] .$insert .$parts[1];
+      }
+    }
+  }
+}

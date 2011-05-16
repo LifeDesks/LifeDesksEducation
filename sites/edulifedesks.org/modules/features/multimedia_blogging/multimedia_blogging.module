@@ -1,0 +1,3 @@
+<?php
+
+include_once('multimedia_blogging.features.inc');

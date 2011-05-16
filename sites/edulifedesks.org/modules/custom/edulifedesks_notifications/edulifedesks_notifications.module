@@ -1,0 +1,37 @@
+<?php
+// $Id$
+/**
+ * @file
+ * Module for providing support for Education LifeDesks notifications.
+ */
+ /**
+ * Implementation of hook_views_api().
+ */
+function edulifedesks_notifications_views_api() {
+  return array(
+    'api' => 2,
+    'path' => drupal_get_path('module', 'edulifedesks_notifications') .'/includes'
+  );
+}
+/**
+ * Implementation of hook_form_alter().
+ */
+function edulifedesks_notifications_form_alter(&$form, $form_state, $form_id) {
+  
+  // Alter forms by id
+  if ($form_id == 'user_profile_form') {
+    if (isset($form['messaging'])) $form['messaging']['#access'] = user_access('maintain own subscriptions');
+  }
+
+  // Set "Do not send notifications for this update." to TRUE by default, and open fieldset so user sees it.
+  if (isset($form['#id']) && $form['#id'] == 'node-form' && isset($form['notifications']['notifications_content_disable'])) {
+    $form['notifications']['#collapsed'] = FALSE;
+    $form['notifications']['notifications_content_disable']['#default_value'] = TRUE;
+  }
+}
+/**
+ * Preprocess hook to alter display of meta data in view.
+ */
+function edulifedesks_notifications_preprocess_node(&$vars) {
+  if (isset($vars['submitted']) && $vars['teaser'] === TRUE && $vars['type'] == 'notice') unset($vars['submitted']);
+}

@@ -1,0 +1,141 @@
+<?php
+// $Id$
+/**
+ * @file
+ * Module for adding Workflow support to the Encyclopedia of Life (EOL) Partnership module.
+ */
+
+/**
+ * Implementation of hook_form_alter().
+ */
+function eol_partnership_workflow_form_alter(&$form, &$form_state, $form_id) {
+  // Allow user to add workflow state as filter to eol_partnership_xml view
+  if ($form_id == 'eol_partnership_settings') {
+    // Get workflow states 
+    // @see workflow_views_handler_filter()
+    $workflows = workflow_get_all();
+    if (count($workflows) > 1) {
+      $states = array('' => t('No state'));
+      foreach ($workflows as $wid => $wname) {
+        $states[$wname] = workflow_get_states($wid);
+      }
+    }
+    else {
+      $states = workflow_get_states();
+    }
+    // Get eol_partnership view
+    $view = views_get_view(EOL_PARTNERSHIP_VIEW_NAME, TRUE);
+    // Get feed display
+    $display = variable_get('eol_partnership_view_display', EOL_PARTNERSHIP_DISPLAY_NAME);
+    // Establish whether feed display filters are overriding default filters (will only be the case if user has manually overridden default filters in view)
+    $display_filters = isset($view->display[$display]->display_options['filters']) ? $display : 'default';
+    $filters = $view->display[$display_filters]->display_options['filters'];
+    // Determine whether workflow filter has already been created, if so get states
+    // TODO: Find out what happens when operators are not in English, do index values stay the same!?
+    $states_op_options = array(
+      'in' => t('Is one of'),
+      'not in' => t('Is not one of'),
+    );
+    // Get current states filter data
+    $current_states = isset($filters['sid']['value']) ? $filters['sid']['value'] : array();
+    $current_states_op = isset($filters['sid']['operator']) ? $filters['sid']['operator'] : 'in';
+    $form['eol_partnership_workflow_settings'] = array(
+      '#type' => 'fieldset',
+      '#title' => t('Workflow settings'),
+      '#collapsible' => TRUE,
+      '#weight' => 0,
+      '#description' => t('By activating Workflow compatibility, XML will be generated for nodes that are in the selected state(s).'),
+    );
+    $form['eol_partnership_workflow_settings']['eol_partnership_workflow_states_op'] = array(
+      '#type' => 'radios',
+      '#multiple' => FALSE,
+      '#required' => TRUE,
+      '#options' => $states_op_options,
+      '#default_value' => $current_states_op,
+    );
+    $form['eol_partnership_workflow_settings']['eol_partnership_workflow_states'] = array(
+      '#type' => 'select',
+      '#title' => t('Workflow states'),
+      '#default_value' => $current_states,
+      '#options' => $states,
+      '#multiple' => TRUE,
+      '#description' => t('You may choose multiple states, e.g. select ctrl key + primary mouse button for Windows operating systems or command key + primary mouse button for Mac operating systems.')
+    );
+    $form['#submit'][] = '_eol_partnership_settings_workflow_submit';
+  }
+  
+  // Add audience level selection to workflow tab
+  if ($form_id == 'workflow_tab_form') {
+    
+    // Check to see if node has audience field - assumes field name is fixed 'field_audience'
+    // TODO: should users be able to specify which field the following audience data is gathered from? Currently assumes 'field_audience'
+    if (isset($form['node']['#value']->field_audience)) {
+      // Get audience field and replicate form element
+      $field = content_fields('field_audience');
+      $allowed_values = content_allowed_values($field, $flatten = FALSE);
+      $default_values = array();
+      foreach ($allowed_values as $checkbox => $check) {
+        $default_values[$checkbox] = 0;
+        foreach ($form['node']['#value']->field_audience as $delta => $value) {
+          if ($checkbox == $value['value']) {
+            $default_values[$checkbox] = $value['value'];
+            break;
+          } 
+        }  
+      }
+      $form['eol_partnership_audience'] = array(
+        '#type' => 'checkboxes',
+        '#title' => $field['widget']['label'],
+        '#description' => $field['widget']['description'],
+        '#weight' => 0,
+        '#options' => $allowed_values,
+        '#default_value' => $default_values,
+      );
+      // Add custom submit to save any changes to audience values to node
+      $form['#submit'][] = '_eol_partnership_workflow_submit';
+    }
+    
+  }
+}
+/**
+ * Custom submit handler for eol_partnership_settings form
+ * Adds workflow states as filters to eol_partnership view
+ */
+function _eol_partnership_settings_workflow_submit($form, &$form_state) {
+  // Get eol_partnership view
+  $view = views_get_view(EOL_PARTNERSHIP_VIEW_NAME, TRUE);
+  // Get feed display
+  $display = variable_get('eol_partnership_view_display', EOL_PARTNERSHIP_DISPLAY_NAME);
+  // Establish whether feed display filters are overriding default filters (will only be the case if user has manually overridden default filters in view)
+  $display_filters = isset($view->display[$display]->display_options['filters']) ? $display : 'default';
+  
+  // Determine whether workflow filter has already been created, if not add it
+  $filter_id = 'sid';
+  if (!isset($view->display[$display_filters]->display_options['filters'][$filter_id])) {
+    $filter_id = $view->add_item($display_filters, 'filter', 'workflow_node', $filter_id); 
+  }
+  $sids = $view->get_item($display_filters, 'filter', $filter_id);
+  $sids['operator'] = $form_state['values']['eol_partnership_workflow_states_op'];
+  $sids['value'] = $form_state['values']['eol_partnership_workflow_states'];
+  $view->set_item($display_filters, 'filter', $filter_id, $sids);
+  $view->is_cacheable = FALSE;
+  $view->save();
+}
+
+
+/**
+ * Custom submit handler for workflow tab form .
+ * Updates node with audience values
+ */
+function _eol_partnership_workflow_submit($form, &$form_state) {
+  $node = $form_state['values']['node'];
+  // Get new audience values and save to node
+  $new_values = array();
+  $node->field_audience = array();
+  foreach ($form_state['values']['eol_partnership_audience'] as $checkbox => $check) {
+    if ($check != '0') {
+      $node->field_audience[] = array('value' => $check);
+    }  
+  }
+  node_save($node);
+}

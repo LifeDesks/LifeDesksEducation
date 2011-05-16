@@ -1,0 +1,13 @@
+; $Id: views_crosstab.info,v 1.1 2009/11/02 07:19:40 grugnog Exp $
+name = Views Crosstab
+description = This module lets you display views results as a "crosstab" - grouping rows by one field, columns by another, and using an aggregate function (count, sum etc) of a third field for the table data. 
+core = 6.x
+package = Views
+dependencies[] = views
+
+; Information added by drupal.org packaging script on 2009-11-02
+version = "6.x-1.0-alpha1"
+core = "6.x"
+project = "views_crosstab"
+datestamp = "1257149215"
+

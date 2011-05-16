@@ -1,0 +1,12 @@
+Index: og.pages.inc
+===================================================================
+--- og.pages.inc	(revision 3705)
++++ og.pages.inc	(working copy)
+@@ -70,7 +70,7 @@
+   // Send notifications to each member; Sending an array of recipients implies
+   // that this is a bulk message.
+   module_invoke_all('og', 'user broadcast', $node->nid, $recipients, $message);
+-  drupal_set_message(format_plural(count($recipients), '1 message queued for delivery.', '@count messages queued for delivery.'));
++  // lwalley: commented out unnecessary message drupal_set_message(format_plural(count($recipients), '1 message queued for delivery.', '@count messages queued for delivery.'));
+   
+ }

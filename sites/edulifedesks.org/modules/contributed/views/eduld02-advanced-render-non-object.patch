@@ -1,0 +1,18 @@
+Index: theme/theme.inc
+===================================================================
+--- theme/theme.inc	(revision 3736)
++++ theme/theme.inc	(working copy)
+@@ -222,7 +222,12 @@
+  */
+ function theme_views_view_field($view, $field, $row) {
+   // Reference safe for PHP 4:
+-  return $view->field[$field->options['id']]->advanced_render($row);
++  if (!is_object($view->field[$field->options['id']])) {
++    return $view->field[$field->field_alias]->advanced_render($row);
++  }
++  else {
++    return $view->field[$field->options['id']]->advanced_render($row);
++  }
+ }
+ 
+ /**

@@ -1,0 +1,11 @@
+; $Id: bulk_state_notify.info,v 1.1 2009/09/09 19:36:44 jcfiala Exp $
+name = "Bulk State Notify"
+description = "Allows workflow states and casetracker states to trigger daily reminders"
+package = "other"
+core = "6.x"
+; Information added by drupal.org packaging script on 2009-09-09
+version = "6.x-1.0"
+core = "6.x"
+project = "bulk_state_notify"
+datestamp = "1252525211"
+

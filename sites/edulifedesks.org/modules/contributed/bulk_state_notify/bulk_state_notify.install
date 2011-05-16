@@ -1,0 +1,145 @@
+<?php
+// $Id: bulk_state_notify.install,v 1.1 2009/09/09 19:36:44 jcfiala Exp $
+
+/**
+ * @file
+ * Install file for Bulk State Notification module.
+ */
+
+/**
+ * Implements hook_schema().
+ */
+function bulk_state_notify_schema() {
+  $schema = array();
+
+  $schema['bulk_state_notify_groups'] = array(
+    'description' => t('Defines groups for Bulk State Notification.'),
+    'fields' => array(
+      'gid' => array(
+        'type' => 'serial',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'description' => t('Group ID.'),
+      ),
+      'name' => array(
+        'type' => 'varchar',
+        'length' => 128,
+        'not null' => TRUE,
+        'description' => t('Name of the group.'),
+      ),
+      'status' => array(
+        'type' => 'int',
+        'size' => 'tiny',
+        'default' => 1,
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => t('0 -> disabled, 1-> enabled'),
+      ),
+      'og_nid' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'description' => t('Organic Group to associate group with.  Can be "all" if value is 0.'),
+      ),
+    ),
+    'primary key' => array('gid'),
+    'indexes' => array(
+      'group_og_nid' => array('og_nid'),
+    )
+  );
+
+  $schema['bulk_state_notify_user_group'] = array(
+    'description' => t('Indicates which users are members of a given group'),
+    'fields' => array(
+      'gid' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'description' => t('Group ID'),
+      ),
+      'uid' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'description' => t('User ID'),
+      ),
+    ),
+    'primary key' => array('gid', 'uid'),
+    'indexes' => array(
+      'uid' => array('uid'),
+    ),
+  );
+
+  $schema['bulk_state_notify_states'] = array(
+    'description' => t('Indicates which group gets emailed at a given state'),
+    'fields' => array(
+      'cnid' => array(
+        'type' => 'serial',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'description' => t('Unique identifier of a notification rule.'),
+      ),
+      'module' => array(
+        'type' => 'varchar',
+        'length' => 128,
+        'description' => t('Name of module which the state_id is from.  Usually going to be either "casetracker" or "workflow".'),
+        'not null' => TRUE,
+      ),
+      'set_id' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'description' => t('If a given module provides more than one set of states, the set id goes here.'),
+      ),
+      'state_id' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'description' => t('Indicates which state is being mailed, whether it is a casetracker or workflow state.'),
+      ),
+      'gid' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'description' => t('The Group in {bulk_state_notify_groups} that this state notifies.'),
+      ),
+      'status' => array(
+        'type' => 'int',
+        'size' => 'tiny',
+        'unsigned' => TRUE,
+        'default' => 1,
+        'not null' => TRUE,
+        'description' => t('Status of rule - if 1, then it is active, if 0, then insactive.'),
+      ),
+    ),
+    'primary key' => array('cnid'),
+    'indexes' => array(
+      'notify_group' => array('gid'),
+      'notify_state' => array('state_id', 'set_id', 'module'),
+    ),
+    'unique keys' => array(
+      'state_id_gid' => array('state_id', 'set_id', 'module', 'gid'),
+    ),
+  );
+
+  return $schema;
+}
+
+/**
+ * Implements hook_install().
+ */
+function bulk_state_notify_install() {
+  drupal_install_schema('bulk_state_notify');
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function bulk_state_notify_uninstall() {
+  drupal_uninstall_schema('bulk_state_notify');
+  variable_del('bulk_state_notify_last_send');
+  variable_del('bulk_state_notify_subject_single');
+  variable_del('bulk_state_notify_subject_plural');
+  variable_del('bulk_state_notify_frequency');
+  variable_del('bulk_state_notify_body');
+}

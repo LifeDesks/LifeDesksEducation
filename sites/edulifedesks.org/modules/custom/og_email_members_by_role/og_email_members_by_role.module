@@ -1,0 +1,193 @@
+<?php
+// $Id$
+/**
+ * @file
+ * Provides an action to email all users in selected role(s) of an Organic Group
+ */
+/**
+ * Implementation of hook_action_info().
+ */
+function og_email_members_by_role_action_info() {
+  // Define which triggers are supported
+  $actions = array(
+    'og_email_members_by_role_send_email_action' => array(
+      'description' => t('Send email to all users in specified role(s) of an Organic Group'),
+      'type' => 'system',
+      'configurable' => TRUE,
+      'hooks' => array(
+        'nodeapi' => array('view', 'insert', 'update', 'delete'),
+        // TODO: extend to other hooks
+      )
+    ),
+  );
+  return $actions;
+}
+/**
+ * Return a form definition so the send email action can be configured.
+ *
+ * @see og_email_members_by_role_send_email_action_validate()
+ * @see og_email_members_by_role_send_email_action_submit()
+ * @param $context
+ *   Default values (if we are editing an existing action instance).
+ * @return
+ *   Form definition.
+ */
+function og_email_members_by_role_send_email_action_form($context) {
+  // Set default values for form.
+  if (!isset($context['subject'])) {
+    $context['subject'] = '';
+  }
+  if (!isset($context['message'])) {
+    $context['message'] = '';
+  }
+  
+  // roles by group checkboxes
+  $group_types = og_get_types('group');
+  foreach ($group_types as $type) {
+    // Set defaults for each group
+    if (!isset($context['recipient_' .$type])) {
+      $context['recipient_' .$type] = array();
+    }
+    // get group roles
+    $group_roles = og_user_roles_get_group_roles($type);
+    $form['recipient_' .$type] = array(
+      '#type' => 'checkboxes',
+      '#title' => t('!group_type recipient roles', array('!group_type' => ucwords(str_replace('_', ' ', $type)))),
+      '#default_value' => $context['recipient_' .$type],
+      '#options' => $group_roles,
+      '#description' => t('Select the role(s) you would like to email for !group_type groups', array('!group_type' => ucwords(str_replace('_', ' ', $type)))),
+      '#required' => FALSE,
+    );
+  }
+  
+  // message components
+  $form['subject'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Subject'),
+    '#default_value' => $context['subject'],
+    '#maxlength' => '254',
+    '#description' => t('The subject of the message.'),
+    '#required' => TRUE,
+  );
+
+  $form['message'] = array(
+    '#type' => 'textarea',
+    '#title' => t('Message'),
+    '#default_value' => $context['message'],
+    '#cols' => '80',
+    '#rows' => '20',
+    '#description' => t('The message that should be sent. You may include the following variables: %site_name, %uid, %author, %node_url, %node_type, %title, %teaser, %body, %workflow_comment. Not all variables will be available in all contexts.'),
+    '#required' => TRUE,
+  );
+  
+  return $form;
+}
+
+/**
+ * Process og_email_members_by_role_send_email_action form submissions.
+ */
+function og_email_members_by_role_send_email_action_submit($form, &$form_state) {
+  // Process the HTML form to store configuration. The keyed array that
+  // we return will be serialized to the database.
+  $params = array();
+  foreach ($form as $field => $data) {
+    switch (TRUE) {
+      case ($field == 'subject'):
+      case ($field == 'message'):
+      case (preg_match('@^recipient_@i', $field)):
+        $params[$field] = $form_state['values'][$field];
+        break;
+    }
+  }
+  return $params;
+}
+/**
+ * Process og_email_members_by_role_send_email_action form validation.
+ */
+function og_email_members_by_role_send_email_action_validate($form, &$form_state) {
+  // TODO ensure at least one role from one group type is selected
+}
+
+/**
+ * Implementation of a configurable Drupal action. Sends an email to specified role(s) of an Organic Group.
+ */
+function og_email_members_by_role_send_email_action($object, $context) {
+  // TODO: Extend to objects other than node
+  if (og_is_group_post_type($object->type)) {
+    
+    $from = variable_get('site_mail', ini_get('sendmail_from'));
+    $params['object'] = $object;
+    $params['context'] = $context;
+    
+    $groups = og_get_node_groups($object);
+    $email_users = array();
+    foreach($groups as $gid => $group_title) {
+      $roles = array();
+      $type = _og_email_members_by_role_get_node_type($gid);
+      foreach ($context['recipient_' .$type] as $rid => $v) {
+        if ($v > 0) {
+          $roles[] = $rid;
+        }
+      }
+      // Get list of users to email, users must have role in current group
+      $result = db_query("SELECT ogur.uid, u.mail, u.name, u.language FROM {og_users_roles} ogur LEFT JOIN {users} u ON ogur.uid = u.uid WHERE ogur.gid = %d AND ogur.rid IN ('%s') AND u.status = 1", $gid, implode(',', $roles));
+      while ($account = db_fetch_object($result)) {
+        if (!isset($email_users[$account->uid])) {
+          $email_users[$account->uid] = $account;
+        }
+      }
+    }
+    $emailed = 0;
+    $language_list = language_list();
+    foreach ($email_users as $uid => $account) {
+      if ($account->language && isset($language_list[$account->language])) {
+        $lang = $language_list[$account->language];
+      } else {
+        $lang = $default ? $default : language_default();
+      }
+      if (drupal_mail('og_email_members_by_role', 'email_og_roles', $account->mail, $lang, $params, $from)) {
+        watchdog('og_email_members_by_role', 'Sent email to %recipient', array('%recipient' => $account->mail));
+        $emailed++;
+      }
+      else {
+        watchdog('error', 'Unable to send email to %recipient from og_email_members_by_role', array('%recipient' => $account->mail));
+      }
+    }
+    watchdog('og_email_members_by_role', "!emailed users emailed successfully.", array('!emailed' => $emailed));
+  }
+}
+
+/**
+ * Implementation of hook_mail().
+ */
+function og_email_members_by_role_mail($key, &$message, $params) {
+  $node = $params['object'];
+  $subject = $params['context']['subject'];
+  $message_body = $params['context']['message'];
+  
+  foreach ($params['context'] as $k => $v) {
+    if (preg_match('@^recipient_@i', $k)) $recipient[$k] = $v;
+  }
+  
+  $variables = array(
+    '%site_name' => variable_get('site_name', 'Drupal'),
+    '%uid' => $node->uid,
+    '%node_url' => url('node/' . $node->nid, array('absolute' => TRUE)),
+    '%node_type' => strtolower(node_get_types('name', $node)),
+    '%title' => check_plain($node->title),
+    '%teaser' => check_markup($node->teaser),
+    '%body' => check_markup($node->body),
+  );
+  $variables['%author'] = $node->name;
+  $variables['%workflow_comment'] = (isset($node->workflow_comment) && $node->workflow_comment) ? t('Comment: ') .check_markup($node->workflow_comment) : 'No comment provided.';
+
+  $subject = strtr($subject, $variables);
+  $message['subject'] = str_replace(array("\r", "\n"), '', $subject);
+  $message['body'] = strtr($message_body, $variables);
+}
+/**
+ * Helper function to get group node type avoiding node_load
+ */
+function _og_email_members_by_role_get_node_type($nid) {
+  return db_result(db_query('SELECT type FROM {node} WHERE nid = %d',$nid));
+}

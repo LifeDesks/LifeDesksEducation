@@ -1,0 +1,27 @@
+<?php
+// $Id$
+/**
+ * @file
+ * Install and uninstall scripts for EOL Partnership Internationalization module.
+ */
+/**
+ * Implementation of hook_install().
+ */
+function eol_partnership_i18n_install() {
+
+}
+/**
+ * Impementation of hook_uninstall().
+ */
+function eol_partnership_i18n_uninstall() {
+  variable_del('eol_partnership_i18n_enabled');
+  variable_del('eol_partnership_i18n_language_field_id');
+  // TODO: Adjust EOL Partnership view to remove i18n settings?
+}
+/**
+ * Impementation of hook_disable().
+ */
+function eol_partnership_i18n_disable() {
+  // TODO: Adjust variables to disabled i18n settings?
+  // TODO: Adjust EOL Partnership view to remove i18n settings?
+}

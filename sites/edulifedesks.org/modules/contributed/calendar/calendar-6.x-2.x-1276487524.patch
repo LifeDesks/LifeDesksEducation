@@ -1,0 +1,86 @@
+Index: includes/calendar_plugin_display_attachment.inc
+===================================================================
+RCS file: /cvs/drupal-contrib/contributions/modules/calendar/includes/calendar_plugin_display_attachment.inc,v
+retrieving revision 1.1.2.17
+diff -u -p -r1.1.2.17 calendar_plugin_display_attachment.inc
+--- includes/calendar_plugin_display_attachment.inc	17 Mar 2009 18:03:36 -0000	1.1.2.17
++++ includes/calendar_plugin_display_attachment.inc	14 Jun 2010 03:52:06 -0000
+@@ -161,10 +161,10 @@ class calendar_plugin_display_attachment
+    */
+   function options(&$display) {
+     parent::options($display);
+-    $display->display_options['inherit_argments'] = TRUE;
+-    $display->display_options['inherit_filters'] = TRUE;
+-    $display->display_options['attachment_position'] = 'after';
+-    $display->display_options['calendar_type'] = $this->calendar_type();
++    $display['display_options']['inherit_argments'] = TRUE;
++    $display['display_options']['inherit_filters'] = TRUE;
++    $display['display_options']['attachment_position'] = 'after';
++    $display['display_options']['calendar_type'] = $this->calendar_type();
+   }  
+ 
+   /**
+Index: includes/calendar_plugin_display_block.inc
+===================================================================
+RCS file: /cvs/drupal-contrib/contributions/modules/calendar/includes/calendar_plugin_display_block.inc,v
+retrieving revision 1.1.2.10
+diff -u -p -r1.1.2.10 calendar_plugin_display_block.inc
+--- includes/calendar_plugin_display_block.inc	6 Dec 2008 14:56:15 -0000	1.1.2.10
++++ includes/calendar_plugin_display_block.inc	14 Jun 2010 03:52:06 -0000
+@@ -47,15 +47,15 @@ class calendar_plugin_display_block exte
+ 
+   function options(&$display) {
+     parent::options($display);
+-    $display->display_options['displays'] = array();
+-    $display->display_options['style_plugin'] = 'calendar_nav';
+-    $display->display_options['items_per_page'] = 0;
+-    $display->display_options['row_plugin'] = '';
+-    $display->display_options['defaults']['style_plugin'] = FALSE;
+-    $display->display_options['defaults']['style_options'] = FALSE;
+-    $display->display_options['defaults']['items_per_page'] = FALSE;
+-    $display->display_options['defaults']['row_plugin'] = FALSE;
+-    $display->display_options['defaults']['row_options'] = FALSE;
++    $display['display_options']['displays'] = array();
++    $display['display_options']['style_plugin'] = 'calendar_nav';
++    $display['display_options']['items_per_page'] = 0;
++    $display['display_options']['row_plugin'] = '';
++    $display['display_options']['defaults']['style_plugin'] = FALSE;
++    $display['display_options']['defaults']['style_options'] = FALSE;
++    $display['display_options']['defaults']['items_per_page'] = FALSE;
++    $display['display_options']['defaults']['row_plugin'] = FALSE;
++    $display['display_options']['defaults']['row_options'] = FALSE;
+   } 
+   
+   function option_definition () {
+Index: includes/calendar_plugin_display_page.inc
+===================================================================
+RCS file: /cvs/drupal-contrib/contributions/modules/calendar/includes/calendar_plugin_display_page.inc,v
+retrieving revision 1.1.2.20
+diff -u -p -r1.1.2.20 calendar_plugin_display_page.inc
+--- includes/calendar_plugin_display_page.inc	24 Jul 2009 19:44:09 -0000	1.1.2.20
++++ includes/calendar_plugin_display_page.inc	14 Jun 2010 03:52:06 -0000
+@@ -44,15 +44,15 @@ class calendar_plugin_display_page exten
+ 
+   function options(&$display) {
+     parent::options($display);
+-    $display->display_options['displays'] = array();
+-    $display->display_options['style_plugin'] = 'calendar_nav';
+-    $display->display_options['items_per_page'] = 0;
+-    $display->display_options['row_plugin'] = '';
+-    $display->display_options['defaults']['style_plugin'] = FALSE;
+-    $display->display_options['defaults']['style_options'] = FALSE;
+-    $display->display_options['defaults']['row_plugin'] = FALSE;
+-    $display->display_options['defaults']['row_options'] = FALSE;
+-    $display->display_options['defaults']['items_per_page'] = FALSE;
++    $display['display_options']['displays'] = array();
++    $display['display_options']['style_plugin'] = 'calendar_nav';
++    $display['display_options']['items_per_page'] = 0;
++    $display['display_options']['row_plugin'] = '';
++    $display['display_options']['defaults']['style_plugin'] = FALSE;
++    $display['display_options']['defaults']['style_options'] = FALSE;
++    $display['display_options']['defaults']['row_plugin'] = FALSE;
++    $display['display_options']['defaults']['row_options'] = FALSE;
++    $display['display_options']['defaults']['items_per_page'] = FALSE;
+   } 
+   
+   function option_definition () {

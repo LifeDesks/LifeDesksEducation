@@ -1,0 +1,29 @@
+Index: og_user_roles.module
+===================================================================
+--- og_user_roles.module  (revision 2756)
++++ og_user_roles.module  (working copy)
+@@ -392,6 +392,8 @@
+       if (isset($args['is_admin']) && $args['is_admin']) {
+         if (($default_admin_role = variable_get('og_user_roles_default_admin_role', 0)) && $default_admin_role != $default_role) {
+           og_user_roles_role_add($nid, $uid, $default_admin_role);
++          // remove default member role if giving admin role -lwalley
++          og_user_roles_role_delete($nid, $uid, $default_role);
+         }
+       }
+       break;
+@@ -403,10 +405,15 @@
+         // Grant role for new group admin.
+         if (isset($args['is_admin']) && $args['is_admin']) {
+           og_user_roles_role_add($nid, $uid, $default_admin_role);
++          // TODO: if user has a role other than default member role then shouldn't give them the admin role i.e. if TA don't give them instructor -lwalley
++          // remove default member role if giving admin role -lwalley
++          og_user_roles_role_delete($nid, $uid, $default_role);
+         }
+         // Delete role for obsolete group admin.
+         else {
+           og_user_roles_role_delete($nid, $uid, $default_admin_role);
++          // Give them default member role instead -lwalley
++          og_user_roles_role_add($nid, $uid, $default_role);
+         }
+       }
+       break;

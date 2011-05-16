@@ -1,0 +1,78 @@
+<?php
+// $Id$
+/**
+ * @file
+ * Install and uninstall scripts for EduLifeDesks Help Tips module.
+ */
+/**
+ * Implementation of hook_install().
+ */
+function edulifedesks_help_tips_install() {
+  // Create new content type
+  $file = realpath('.') .'/' .drupal_get_path('module', 'edulifedesks_help_tips') .'/includes/edulifedesks_help_tips_help_tip.content_default.inc';
+  $content_type_definition = file_get_contents($file);
+  _edulifedesks_help_tips_create_content_type($content_type_definition);
+  
+}
+/**
+ * Impementation of hook_uninstall().
+ */
+function edulifedesks_help_tips_uninstall() {
+  // TODO: Remove content type?  
+  // Opted not to remove as node_type_delete('help_tip'); removes content type but not nodes, they are still shown in content listing and can be viewed but not edited, so opting to leave content type in place, user can choose to delete.
+  // Non edited views are automatically removed.
+  // Remove views block.
+  db_query("DELETE FROM {blocks} WHERE module = '%s' AND delta = '%s'", 'views', 'edulifedesks_help_tips-block_1');
+}
+/**
+ * Implementation of hook_update_N().
+ */
+function edulifedesks_help_tips_update_6000() {
+  $ret = array();
+  // Update help tip content type.
+  $file = realpath('.') .'/' .drupal_get_path('module', 'edulifedesks_help_tips') .'/includes/edulifedesks_help_tips_help_tip.content_default.inc';
+  $content_type_definition = file_get_contents($file);
+  if ($content_type_definition == '') $ret['#abort'] = array('success' => FALSE, 'query' => 'Content type definition file has no content, or could not be found.');
+  _edulifedesks_help_tips_create_content_type($content_type_definition, 'help_tip');
+  // Return success or failure, or empty array - Drupal update script requires it.
+  return $ret;
+}
+/**
+ * Implementation of hook_disable().
+ */
+function edulifedesks_help_tips_disable() {
+  // Disable EduLifeDesks Help Tips blocks
+  db_query("UPDATE {blocks} SET status = %d WHERE module = '%s' AND delta = '%s'", 0, 'views', 'edulifedesks_help_tips-block_1');
+}
+/**
+ * Implementation of hook_enable().
+ */
+function edulifedesks_help_tips_enable() {
+  // Enable EduLifeDesks Help Tips blocks
+  db_query("UPDATE {blocks} SET status = %d WHERE module = '%s' AND delta = '%s'", 1, 'views', 'edulifedesks_help_tips-block_1');
+}
+/**
+ * Helper function to create content type on install.
+ * @see http://groups.drupal.org/node/5272
+ * 
+ * @param $type string
+ * Content type to add definition to, defaults to new type, if type exists, only fields will be added.
+ *
+ * @param $macro array
+ * Exported array from content types -> export. If file is not specified, macro will be used.
+ * 
+ */
+function _edulifedesks_help_tips_create_content_type($macro, $type = '<create>') {
+  // Define content and content type to be created or added to.
+  $form_state = array(
+    'values' => array(
+      'type_name' => $type,
+      'macro' => $macro
+    ),
+  );
+  // Make sure the required functions are included.
+  require_once drupal_get_path('module', 'content_copy') .'/content_copy.module';
+  // Import content by executing content copy import form and passing macro
+  drupal_execute('content_copy_import_form', $form_state);
+  content_clear_type_cache();
+}

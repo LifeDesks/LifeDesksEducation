@@ -1,0 +1,9 @@
+; $Id$
+name = "Education LifeDesks Statistics"
+description = "Provides statistics and reports on content produced by Education LifeDesks users."
+package = Education LifeDesks
+dependencies[] = views
+dependencies[] = views_groupby
+dependencies[] = views_crosstab
+core = 6.x
+php = 5.2

@@ -1,0 +1,8 @@
+; $Id$
+name = Education LifeDesks Alter
+description = Overrides core and contributed module configurations for use with Education LifeDesks.
+package = Education LifeDesks
+core = 6.x
+version = "6.x-1.0"
+
+dependencies[] = og_vocab

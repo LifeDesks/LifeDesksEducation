@@ -1,0 +1,8 @@
+; $Id$
+name = "Education LifeDesks Notifications"
+description = "Provides support for notifications."
+package = Education LifeDesks
+dependencies[] = notifications
+dependencies[] = views
+core = 6.x
+php = 5.2

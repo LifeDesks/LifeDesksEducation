@@ -1,0 +1,19 @@
+<?php
+// $Id$
+/**
+ * @file
+ * Install and uninstall scripts for Education LifeDesks Notifications module.
+ */
+/**
+ * Implementation of hook_install().
+ */
+function edulifedesks_notifications_install() {
+  // notifications_content module is set to weight 100, we want to be heavier to implement form_alters
+  db_query("UPDATE {system} SET weight = 101 WHERE name = 'edulifedesks_notifications'");
+}
+/**
+ * Implementation of hook_uninstall().
+ */
+function edulifedesks_notifications_uninstall() {
+
+}

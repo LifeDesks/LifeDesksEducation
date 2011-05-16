@@ -1,0 +1,3 @@
+<?php
+
+include_once('progress_tracker.features.inc');

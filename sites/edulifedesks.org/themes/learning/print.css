@@ -1,0 +1,103 @@
+/* $Id */
+
+/** Reset all divs and ul (navbars) */
+div, ul {
+  margin: 0 !important;
+  padding: 0 !important;
+  float: none !important;
+  overflow: visible !important; /** Prevent scroll bars in Chrome and Safari */
+  position: relative !important;
+}
+
+/** Add some layout back in where required */
+.views-field-field-feature-image-fid,
+#logo,
+.inline-left {
+  float: left !important;
+  padding-right: 0.1in !important;
+}
+#site-slogan, #site-name,
+.views-field-field-feature-title-value, .views-field-field-feature-subtitle-value {
+
+}
+ 
+
+/* Turn off any background colors or images */
+body,
+#page, #page-inner,
+#header, #header-inner,
+#main, #main-inner,
+#content, #content-inner,
+#footer {
+  color: #000;
+  background-color: transparent !important;
+  background-image: none !important;
+}
+
+/* Hide sidebars, nav and miscellaneous elements */
+#skip-to-nav, #block-user-0, #header-blocks, #navbar, #sidebar-left, #sidebar-right, .view-filters, 
+.breadcrumb, .tabs, .taxonomy,
+.book-navigation, .forum-topic-navigation, .pager, .feed-icons,
+.menu, #subprimary, #secondary, #node-links {
+  display: none !important;
+  visibility: hidden !important;
+  
+}
+
+/** Set whitespace for content */
+#header {
+  margin-bottom: 1in !important;
+}
+#content {
+  margin: 1in 0 !important;
+}
+#footer {
+  margin-top: 3in;
+}
+#content ul {
+  margin: 0.1in !important;
+}
+h1.title {
+  float: none !important;
+  margin: 0.5in 0 !important;
+}
+
+/* Underline all links */
+a:link, a:visited {
+  text-decoration: underline !important;
+}
+
+/* Don't underline header */
+#site-name a:link,
+#site-name a:visited {
+  text-decoration: none !important;
+}
+
+/* CSS2 selector to add visible href after links */
+#content a:link:after,
+#content a:visited:after {
+  content: " (" attr(href) ") ";
+  font-size: 0.8em;
+  font-weight: normal;
+}
+
+/** Control page breaks. Not well supported. */
+tr, image, td, a {
+  page-break-inside: avoids;
+}
+
+
+
+/* Set page margins and width */
+@page { margin: 1in }
+@page :left {
+  margin-left: 1.5in;
+  margin-right: 1in;
+}
+@page :right {
+  margin-left: 1in;
+  margin-right: 1.5in;
+}
+@page :first {
+  margin-top: 1.5in;
+}

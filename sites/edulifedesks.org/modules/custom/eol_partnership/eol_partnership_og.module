@@ -1,0 +1,355 @@
+<?php
+// $Id$
+/**
+ * @file
+ * Module for adding OG support to the Encyclopedia of Life (EOL) Partnership module.
+ */
+
+/**
+ * Implementation of hook_block().
+ */
+function eol_partnership_og_block($op='list', $delta=0, $edit=array()) {
+  if (module_exists('og') && variable_get('eol_partnership_og_enabled', 0) == 1) {
+    global $theme;
+    switch ($op) {
+      case 'list':
+        $blocks = array();
+        $blocks['eol_partnership_og']['info'] = t('EOL Partnership OG');
+        $blocks['eol_partnership_og']['cache'] = BLOCK_NO_CACHE;
+        return $blocks;
+  
+      case 'view':
+        switch ($delta) {
+          case 'eol_partnership_og':
+            $block['subject'] = t('EOL Partnership');
+            $block['content'] = _eol_partnership_og_block_content();
+            return $block;
+        }
+      
+      case 'configure':
+        switch ($delta) {
+          case 'eol_partnership_og':
+            $form = array();
+            $description = (variable_get('eol_partnership_og_enabled', 0) == 0) ? 'To select which group types home pages the EOL Partnership block should appear on, please first <a href="!settings_url">enable EOL Partnership Organic Groups support</a>' : 'Select one or more <a href="!settings_url">EOL Partnership enabled group types</a> to show the block on their home pages. In addition you can further restrict access to the block by selecting to show the block only to group administrators or members, or to users with a specific permission. These settings may override any other general block visibility settings you specify.';
+            $form['eol_partnership_og_vis_settings'] = array(
+              '#type' => 'fieldset',
+              '#collapsible' => TRUE,
+              '#title' => t('Organic Group specific visibility settings'),
+              '#description' => t($description, array('!settings_url' => url('admin/content/eol-partnership/settings'))),
+              '#weight' => 1,
+            );
+            if (variable_get('eol_partnership_og_enabled', 0) == 1) {
+              // TODO: adjust eol_partnership_og_block_vis and block config to add/remove 'disabled' groups from visibility options when EOL Partnership settings are changed
+              $options = array();
+              $enabled_groups = variable_get('eol_partnership_og_groups', array());
+              foreach ($enabled_groups as $name => $enabled) {
+                if ($enabled == $name) $options[$name] = $name;
+              }
+              $form['eol_partnership_og_vis_settings']['eol_partnership_og_block_vis'] = array(
+                '#type' => 'checkboxes',
+                '#title' => t('Show block for specific EOL Partnership enabled groups'),
+                '#description' => t('NOTE: This will override any page specific visibility settings you have specified.'),
+                '#options' => $options,
+                '#default_value' => variable_get('eol_partnership_og_block_vis', array()),
+              );
+              // Let user choose whether to restrict visibility to group admin or group members
+              $options = array('admin' => t('Administrators only'), 'members' => t('Members only'));
+              $form['eol_partnership_og_vis_settings']['eol_partnership_og_block_member_vis'] = array(
+                '#type' => 'checkboxes',
+                '#title' => t('Show block depending on group membership'),
+                '#description' => t('NOTE: This may override any role specific visibility settings you have specified.'),
+                '#options' => $options,
+                '#default_value' => variable_get('eol_partnership_og_block_member_vis', array()),
+              );
+              // Let user specify a permission
+              $description = (user_access('administer permissions')) ? 'Enter a <a href="!user_permissions_url">permission</a> string e.g. <em>administrate eol partnerhsip</em>. This setting will override any other visibility settings you have specified.' : 'This setting will override any other visibility settings you have specified and should be used only by site administrators, if you do not have access to the list of permission strings then leave this blank.';
+              $form['eol_partnership_og_vis_settings']['eol_partnership_og_block_perm_vis'] = array(
+                '#type' => 'textfield',
+                '#title' => t('Show block for specific user permission'),
+                '#description' => t($description, array('!user_permissions_url' => 'admin/user/permissions')),
+                '#default_value' => variable_get('eol_partnership_og_block_perm_vis', ''),
+              );
+            }
+            return $form;
+        }
+      case 'save':
+        switch ($delta) {
+          case 'eol_partnership_og':
+            variable_set('eol_partnership_og_block_member_vis', $edit['eol_partnership_og_block_member_vis']);
+            variable_set('eol_partnership_og_block_perm_vis', $edit['eol_partnership_og_block_perm_vis']);
+            variable_set('eol_partnership_og_block_vis', $edit['eol_partnership_og_block_vis']);
+            $sql = 'UPDATE {blocks} SET visibility = 2, pages = CONCAT("<", "?", "php ", "return _eol_partnership_og_block_visibility(); ", "?", ">") WHERE module=\'eol_partnership_og\' AND delta=0 AND theme=\'%s\'';
+            db_query($sql, $theme);
+        }
+    }
+  }
+}
+/**
+ * Build content for block
+ */
+function _eol_partnership_og_block_content() {
+  // Get current group
+  $group = og_get_group_context();
+  if (!empty($group)) {
+    // Get EOL Partnership info
+    $eol_partnership['view'] = views_get_view(EOL_PARTNERSHIP_VIEW_NAME, TRUE);
+    if (!empty($eol_partnership['view']) && !$eol_partnership['view']->disabled) {
+      $display = variable_get('eol_partnership_view_display', EOL_PARTNERSHIP_DISPLAY_NAME);
+      $eol_partnership['results'] = views_get_view_result(EOL_PARTNERSHIP_VIEW_NAME, $display, $group->nid);
+      $eol_partnership['results_count'] = count($eol_partnership['results']); // Doesn't address possible duplicates
+      // Check to see if we're building static files or using dynamic URL
+      if (variable_get('eol_partnership_static', EOL_PARTNERSHIP_DYNAMIC_XML) == 'static') {
+        $eol_partnership['static'] = TRUE;
+        $destination = variable_get('eol_partnership_directory', '');
+        $filename = $group->type .'-' .$group->nid .'-eol.xml.gz';
+        $eol_partnership['feed_path'] = $destination .'/' .$filename;
+        // Check file exists, realpath returns TRUE if file exists FALSE otherwise
+        if (realpath($eol_partnership['feed_path'])) {
+          $eol_partnership['file_exists'] = TRUE;
+        }
+        else {
+          $eol_partnership['file_exists'] = FALSE;
+        }
+      }
+      else {
+        $eol_partnership['feed_path'] = str_ireplace('node/%', $group->path, $eol_partnership['view']->display[$display]->display_options['path']);
+      }
+    }
+  }
+  return theme('eol_partnership_og_block', $group, $eol_partnership);
+}
+
+/**
+ * Adjust block visibility so that it only shows on group home page,
+ * and adheres to user visibility settings in block configuration.
+ */
+function _eol_partnership_og_block_visibility() {
+  // If user doesn't have permission specified then don't show block
+  $perm = variable_get('eol_partnership_og_block_perm_vis', '');
+  if (!empty($perm) && !user_access($perm)) return FALSE;
+  
+  // Check for selected groups
+  $groups = variable_get('eol_partnership_og_block_vis', array());
+  $groups_selected = array();
+  foreach ($groups as $name => $selected) {
+    if ($name == $selected) {
+      $groups_selected[$name] = $name;
+    }
+  }
+  // Don't show block if no groups selected
+  if (!count($groups_selected) > 0) return FALSE;
+  
+  // Get current group
+  $current_group = og_get_group_context();
+  // If no current group, or type doesn't match selected groups then don't show block
+  if (!isset($current_group->type) || !in_array($current_group->type, $groups_selected)) return FALSE;
+  
+  // Check if on group home page
+  $alias = request_uri();
+  if (!preg_match('@^/' .$current_group->path .'/?(view)?/?(\?.*)?$@i', $alias)) return FALSE;
+  
+  // If current user doesn't match vis settings then don't show block
+  $member_vis = variable_get('eol_partnership_og_block_member_vis', array());
+  if ($member_vis['admin'] == 'admin' && !og_is_group_admin($current_group)) return FALSE;
+  if ($member_vis['member'] == 'member' && !og_is_group_member($current_group->nid)) return FALSE;        
+  
+  return TRUE;
+}
+/**
+ * Implementation of hook_theme()
+ */
+function eol_partnership_og_theme() {
+  return array(
+    'eol_partnership_og_block' => array(
+      'arguments' => array('group' => NULL, 'eol_partnership' => NULL),
+    ),
+  );
+}
+/*
+ * Theme OG support block
+ */
+function theme_eol_partnership_og_block($group, $eol_partnership) {
+  if (!empty($group)) {
+    // show group info?
+    if (!empty($eol_partnership)) {
+      $content .= '<p>';
+      $content .= t('<a href="!eol_partner_registration_url">Register</a> as an EOL content partner, or <a href="!eol_partner_login_url">log in</a> to add/edit your group\'s content harvesting settings.', array('!eol_partner_registration_url' => 'https://eol.org/content_partner/register?method=get', '!eol_partner_login_url' => 'https://eol.org/content_partner/reports/login?method=get'));
+      $content .= ' ' . t("Once you register your XML Source URL, and schedule a harvest, with EOL, your group's available content will be copied to EOL.");
+      $content .= '</p>';
+      $content .= '<dl>';
+      $content .= '<dt>' .t('XML source URL:') .'</dt>';
+      $content .= '<dd>';
+      $content .= file_create_url($eol_partnership['feed_path']);
+      $content .= '</dd>';        
+      $content .= '</dl>';
+      $content .= '<p>';
+      if ($eol_partnership['results_count'] > 0) {
+        $content .= format_plural($eol_partnership['results_count'], 'There is currently 1 item available for harvesting.', 'There are currently @count items available for harvesting.');
+        if ($eol_partnership['static'] && $eol_partnership['file_exists']) {
+          $content .= ' ' . t('You may <a title="Preview/download the XML file" href="!xml_url">download the XML file</a> for preview purposes.', array('!xml_url' => file_create_url($eol_partnership['feed_path'])));
+        }
+        elseif ($eol_partnership['static'] && !$eol_partnership['file_exists']) {
+          $content .= ' ' .t('The XML file is not currently available. Please contact your site administrator if this problem persists.');
+        }
+      }
+      else {
+        $content .= t('Your group does not currently have any content available for harvesting by EOL.');
+        if ($eol_partnership['static'] && !$eol_partnership['file_exists']) {
+          $content .= $eol_partnership['file_exists'] .' ' . t("Please note, the XML file does not currently exist. It will be built once your group's content is available for harvesting.");
+        }
+      }
+      $content .= '</p>';
+    }
+  } 
+  return $content;
+}
+/**
+ * Implementation of hook_form_alter()
+ */
+function eol_partnership_og_form_alter(&$form, &$form_state, $form_id) {
+  if ($form_id == 'eol_partnership_settings') {
+    
+    $groups = og_get_types('group');
+    foreach ($groups as $i => $group) {
+      $groups[$group] = $group;
+      unset($groups[$i]);
+    }
+    $form['eol_partnership_og_settings'] = array(
+      '#type' => 'fieldset',
+      '#title' => t('Organic Groups settings'),
+      '#collapsible' => TRUE,
+      '#weight' => 0,
+      '#description' => t('By activating Organic Groups compatibility, XML will be generated for individual groups of the selected types.'),
+    );
+    $form['eol_partnership_og_settings']['eol_partnership_og_enabled'] = array(
+      '#type' => 'checkbox',
+      '#title' => t('Enable support for Organic Groups'),
+      '#default_value' => variable_get('eol_partnership_og_enabled', 0),
+    );
+    $form['eol_partnership_og_settings']['eol_partnership_og_groups'] = array(
+      '#type' => 'checkboxes',
+      '#title' => t('Select one or more group types to generate XML separately for each of these groups'),
+      '#default_value' => variable_get('eol_partnership_og_groups', array()),
+      '#options' => $groups,
+    );
+    $form['#validate'][] = '_eol_partnership_settings_og_validate';
+    $form['#submit'][] = '_eol_partnership_settings_og_submit';
+  }
+}
+/**
+ * Custom validate handler for eol_partnership_settings form
+ */
+function _eol_partnership_settings_og_validate($form, &$form_state) {
+  // Check to ensure that a group type has been selected if OG support is enabled
+  if ($form_state['values']['eol_partnership_og_enabled'] == 1) {
+    $group_selected = 0;
+    foreach ($form_state['values']['eol_partnership_og_groups'] as $name => $selected) {
+      if ($selected !== 0) {
+        $group_selected = 1;
+        break;
+      }
+    }
+    if ($group_selected == 0) {
+      $form_state['values']['eol_partnership_og_enabled'] = 0;
+      form_set_error('eol_partnership_og_groups', t('Please select a group type if you wish to enable Organic Groups support.'));
+    }
+  }
+}
+/**
+ * Custom submit handler for eol_partnership_settings
+ * Adds/removes Organic Groups support from view
+ */
+function _eol_partnership_settings_og_submit($form, &$form_state) {
+  // Add organic groups argument to view
+  $view = views_get_view(EOL_PARTNERSHIP_VIEW_NAME, TRUE);
+  $display = $form_state['values']['eol_partnership_view_display'];
+  $display_with_args = isset($view->display[$display]->display_options['arguments']) ? $display : 'default';
+  if ($form_state['values']['eol_partnership_og_enabled'] == 1) {
+    // Only add argument if it doesn't already exist
+    if (!isset($view->display[$display_with_args]->display_options['arguments']['group_nid'])) {
+      $options = array(
+        'default_action' => 'empty',
+        'style_plugin' => 'default_summary',
+        'style_options' => array(),
+        'wildcard' => 'all',
+        'wildcard_substitution' => 'All',
+        'title' => '',
+        'breadcrumb' => '',
+        'default_argument_type' => 'fixed',
+        'default_argument' => '',
+        'validate_type' => 'og_group_types',
+        'validate_fail' => 'empty',
+        'break_phrase' => 0,
+        'not' => 0,
+        'id' => 'group_nid',
+        'table' => 'og_ancestry',
+        'field' => 'group_nid',
+        'relationship' => 'none',
+      );
+      $view->add_item($display_with_args, 'argument', 'og_ancestry', 'group_nid', $options);
+      $view->display[$display]->display_options['path'] = 'node/%/eol.xml';
+      $view->disabled = FALSE;
+      $view->is_cacheable = FALSE;
+      $view->save();
+      // Flush caches to rebuild menu
+      drupal_flush_all_caches();
+    }
+  } else {
+    // Remove argument
+    if (isset($view->display[$display_with_args]->display_options['arguments']['group_nid'])) unset($view->display[$display_with_args]->display_options['arguments']['group_nid']);
+    // Change path back to default
+    $view->display[$display]->display_options['path'] = 'eol-partnership/eol.xml';
+    $view->is_cacheable = FALSE;
+    $view->save();
+    // Flush caches to rebuild menu otherwise get page not found
+    drupal_flush_all_caches();
+  }
+}
+/**
+ * Implementation of hook_eol_partnership_xml_files_alter()
+ */
+function eol_partnership_og_eol_partnership_xml_files_alter() {
+  $files = array();
+  // Include arguments for selected organic groups if enabled
+  if (variable_get('eol_partnership_og_enabled', 0) == 1) {
+    $groups = variable_get('eol_partnership_og_groups', array());
+    $in_types = '';
+    foreach ($groups as $group) {
+      if ($group != '0') $in_types[] = '"' .$group .'"';
+    }
+    $in_types = implode(', ', $in_types);
+    // Create file array for each enabled group
+    if (!empty($in_types)) {
+      $result = db_query('SELECT nid, type FROM {node} WHERE node.type IN (' .$in_types .')');
+      while ($group = db_fetch_object($result)) {
+        $file = array();
+        $file['filename'] = $group->type .'-' .$group->nid .'-eol';
+        $file['args'] = array($group->nid);
+        $files[] = $file;
+      }
+    }
+  }
+  return $files;
+}
+/**
+ * Theme preprocess to modify EOL Partnership overview form. and add OG details
+ */
+function eol_partnership_og_preprocess_eol_partnership_admin_overview(&$vars) {
+  if (variable_get('eol_partnership_og_enabled', 0) == 1) {
+    $groups_list = array();
+    foreach (variable_get('eol_partnership_og_groups', array()) as $name => $selected) {
+      if ($selected) $groups_list[] = array('data' => $name);
+    }
+    $to_add['description'] = '<p>' .t('Support for Organic Groups is enabled. If static files are chosen then a separate file will be produced for each group of the following group types:') .'</p>';
+    $to_add['list'] = theme('item_list', $groups_list);
+    $vars['content']['xml']['description'] = '<p>' .t('Enable <a href="!block_url">EOL Partnership OG block</a> to optionally provide a download XML preview on group home pages. Group owners can add the corresponding URL (format [group type]-[group id]-eol.xml.gz to their EOL Content Partner account.', array('!block_url' => url('admin/build/block')));
+
+    // Reposition OG section
+    $adjusted = array();
+    foreach ($vars['content'] as $section => $content) {
+      if ($section == 'xml') $adjusted['eol_partnership_og'] = $to_add;
+      $adjusted[$section] = $content;
+    }
+    $vars['content'] = $adjusted;
+  }
+}

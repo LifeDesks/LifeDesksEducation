@@ -1,0 +1,6 @@
+; $Id$
+name = Classification Checker
+description = A module that alters the taxon-page content type by integrating a look-up for names and ranks in the Catalogue of Life using an EOL web service.
+package = Education LifeDesks
+core = 6.x
+version = "6.x-1.0"

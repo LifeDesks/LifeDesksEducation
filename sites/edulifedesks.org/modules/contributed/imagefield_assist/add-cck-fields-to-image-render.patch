@@ -1,0 +1,105 @@
+Index: imagefield_assist.css
+===================================================================
+--- imagefield_assist.css	(revision 2758)
++++ imagefield_assist.css	(working copy)
+@@ -1,20 +1,20 @@
+ /* $Id: imagefield_assist.css,v 1.1 2009/07/03 12:53:49 lourenzo Exp $ */
+ 
+-span.inline-left {
++div.inline-left {
+   display: block;
+   float: left;
+   margin: 5px 5px 5px 0px;
+ }
+-span.inline-right {
++div.inline-right {
+   display: block;
+   float: right;
+   margin: 5px 0px 5px 5px;
+ }
+-span.inline-center {
++div.inline-center {
+   display: block;
+   text-align: center;
+ }
+-span.inline .caption {
++div.inline .caption {
+   display: block;
+ }
+ .image-clear {
+Index: imagefield_assist.module
+===================================================================
+--- imagefield_assist.module	(revision 2764)
++++ imagefield_assist.module	(working copy)
+@@ -1300,6 +1300,10 @@
+     '#type' => 'hidden',
+     '#value' => $aspect_ratio,
+   );
++  $form['nid'] = array(
++    '#type' => 'hidden',
++    '#value' => $img->nid,
++  );
+   
+   // Buttons.
+   $form['buttons'] = array(
+@@ -1588,7 +1592,7 @@
+     }
+     
+     // Always define an alignment class, even if it is 'none'.
+-    $output = '<span class="inline inline-'. $attributes['align'] .'">';
++    $output = '<div class="inline inline-'. $attributes['align'] .'" style="width: '. $width .'px;">';
+ 
+     // Get preset: comes from 'preset' attribute from filter and 'size_label' from html insert.
+     if (isset($attributes['preset'])) {
+@@ -1668,8 +1672,17 @@
+         $output .= '<span class="caption">'. $caption .'</span>';
+       }
+     }
++
++    if ($attributes['nid']) {
++      $node = node_build_content(node_load($attributes['nid']));
++      if ($node->content['group_attribution']['group']) $node->content['group_attribution']['group']['#collapsed'] = TRUE;
++      $output .= '<div class="attribution-container">';
++      if ($node->content['field_cc_license']) $output .= drupal_render($node->content['field_cc_license']);
++      if ($node->content['group_attribution']) $output .= drupal_render($node->content['group_attribution']);
++      $output .= '</div>';
++    }
+     
+-    $output .= '</span>';
++    $output .= '</div>';
+ 
+     return $output;
+   }
+Index: imagefield_assist_tinymce.js
+===================================================================
+--- imagefield_assist_tinymce.js	(revision 2764)
++++ imagefield_assist_tinymce.js	(working copy)
+@@ -16,10 +16,11 @@
+ // document.write('<sc'+'ript language="javascript" type="text/javascript" src="' + BASE_URL + 'modules/tinymce/tinymce/jscripts/tiny_mce/tiny_mce_popup.js"><\/script>'); 
+ 
+ // get variables that were passed to this window from the tinyMCE editor
+-var fid, captionTitle, captionDesc, link, url, align, width, height, lightbox;
++var fid, nid, captionTitle, captionDesc, link, url, align, width, height, lightbox;
+ 
+ function initLoader() {
+   fid          =      tinyMCEPopup.getWindowArg('fid');
++  nid          = '' + tinyMCEPopup.getWindowArg('nid');
+   captionTitle = '' + tinyMCEPopup.getWindowArg('captionTitle');
+   captionDesc  = '' + tinyMCEPopup.getWindowArg('captionDesc');
+   link         = '' + tinyMCEPopup.getWindowArg('link');
+@@ -95,6 +96,7 @@
+ 
+ function getFilterTag(formObj) {
+   fid          = formObj['edit-fid'].value;
++  nid          = formObj['edit-nid'].value;
+   captionTitle = formObj['edit-title'].value;
+   captionDesc  = formObj['edit-desc'].value;
+   link         = formObj['edit-link'].value;
+@@ -118,6 +120,7 @@
+   if(typeof url != 'undefined' && url != formObj['edit-default-url'].value) {
+     miscAttribs += '|url=' + url;
+   }
++  miscAttribs += '|nid=' + nid;
+   miscAttribs = encodeURIComponent(miscAttribs);
+   var content = '<img src="' + Drupal.settings.basePath + 'index.php?q=imagefield_assist/preview/' + fid + '/'+ preset +'"'
+               + ' align="' + align + '"'

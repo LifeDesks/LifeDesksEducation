@@ -1,0 +1,85 @@
+<?php
+// $Id: wysiwyg_template.module,v 1.4 2009/06/10 21:50:19 jenlampton Exp $
+
+/**
+ * @file
+ * Makes TinyMCE Templates available as plugin for client-side editors integrated via
+ * Wysiwyg API.
+ */
+
+/**
+ * Implementation of hook_wysiwyg_plugin().
+ */
+function wysiwyg_template_wysiwyg_plugin($editor, $version) {
+  static $integrated = array();
+
+  switch ($editor) {
+    case 'tinymce':
+      // get values defined on settings page
+      $jspath = variable_get('wysiwyg_template_path', 'sites/all/files');
+      $jsfile = variable_get('wysiwyg_template_file', 'templates.js');
+      // include path to js file
+      /*
+      $settings = array(
+        'template' => array('template_external_list_url' => base_path() . $jspath . '/' . $jsfile),
+      );
+      drupal_add_js($settings, 'setting');
+      */
+      $tinymce = wysiwyg_get_editor($editor);
+      return array(
+        'template' => array(
+          'path' => $tinymce['library path'] .'/plugins/template',
+          'buttons' => array('template' => t('Insert templates')),
+          'url' => 'http://wiki.moxiecode.com/index.php/TinyMCE:Plugins/template',
+          'internal' => TRUE,
+          'options' => array(
+            'template_external_list_url' => base_path() . $jspath . '/' . $jsfile,
+          ),
+          'load' => TRUE,
+        ),
+      );
+  }
+}
+
+/**
+ * Implementation of hook_menu().
+ */
+function wysiwyg_template_menu() {
+  $items = array();
+
+  $items['admin/settings/wysiwyg_template'] = array(
+    'title' => 'Wysiwyg Templates',
+    'description' => 'Wysiwyg Template plugin settings',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('wysiwyg_template_admin_settings'),
+    'access arguments' => array('administer filters'),
+  );
+
+  return $items;
+}
+
+/**
+ * Implementation of hook_menu().
+ */
+function wysiwyg_template_admin_settings() {
+  $form = array();
+  
+  $form['wysiwyg_template_path'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Path to your js file'),
+    '#default_value' => variable_get('wysiwyg_template_path', 'sites/all/files'),
+    '#description' => t('defaults to sites/all/files'),
+  );
+  $form['wysiwyg_template_file'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Name of your js file'),
+    '#default_value' => variable_get('wysiwyg_template_file', 'templates.js'),
+    '#description' => t('defaults to templates.js'),
+  );
+  $form['info'] = array(
+    '#title' => t('Next Steps'),
+    '#value' => '<p>'.t('Create a file called ').variable_get('wysiwyg_template_file', 'template.js').t('(from above) and upload it to ').variable_get('wysiwyg_template_path', 'sites/all/files').t('(from above).  The file should define the names and locations of the HTML templates you would like to use in your WYSIWYG editor.  You may copy and paste the syntax from the README.txt file.').'</p>',
+  );
+  
+  return system_settings_form($form);
+}

@@ -1,0 +1,34 @@
+Index: notifications_ui/notifications_ui.module
+===================================================================
+--- notifications_ui/notifications_ui.module	(revision 3638)
++++ notifications_ui/notifications_ui.module	(working copy)
+@@ -366,20 +366,28 @@
+  *   Prefix to use for the link indexes
+  */
+ function notifications_ui_build_links($options, $prefix = 'notifications_') {
+   global $user;
+ 
+   $links = array();  
+   foreach ($options as $index => $option) {
++    // Patch to modify link text - lwalley
++    if ($option['type'] = 'nodetype') {
++      $option['name'] = str_ireplace('Posts of type ', '', $option['name']);
++      $option['name'] = strtolower($option['name']);
++      if (substr($option['name'], -1) != 's') $option['name'] .= 's';
++    }
+     if (!empty($option['subscription'])) {
+       // Unsubscribe link
+-      $title = t('Unsubscribe from: !name', array('!name' => $option['name']));
++      $title = t('Unsubscribe from !name', array('!name' => $option['name']));
+       $props = notifications_get_link('unsubscribe', array('sid' => $option['subscription']->sid, 'destination' => $_GET['q']));
+     }
+     else {
+       // Subscribe link
+-      $title = t('Subscribe to: !name', array('!name' => $option['name']));
++      $title = t('Subscribe to !name', array('!name' => $option['name']));
+       $props = notifications_get_link('subscribe', array('uid' => $user->uid, 'type' => $option['type'], 'confirm' => TRUE, 'fields' => $option['fields'], 'destination' => $_GET['q']));
+     }
++    // End patch
+     $links[$prefix . $index] = array(
+       'title' => $title,
+       'html' => TRUE,

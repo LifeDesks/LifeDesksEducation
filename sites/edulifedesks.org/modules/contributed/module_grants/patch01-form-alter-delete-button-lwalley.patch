@@ -1,0 +1,21 @@
+Index: node_tools/node_tools.module
+===================================================================
+--- node_tools/node_tools.module	(revision 3701)
++++ node_tools/node_tools.module	(working copy)
+@@ -85,6 +85,16 @@
+ function node_tools_form_alter(&$form, &$form_state, $form_id) {
+   if (isset($form['#id']) && $form['#id'] == 'node-form') {
+     $nid = $form['#node']->nid;
++    // PATCH: Add delete button to node forms if module_grants_node_access returns TRUE -lwalley
++    if (!isset($form['buttons']['delete']) && module_grants_node_access('delete', $form['#node'])) {
++      $form['buttons']['delete'] = array(
++        '#type' => 'submit',
++        '#value' => t('Delete'),
++        '#weight' => 15,
++        '#submit' => array('node_form_delete_submit'),
++      );
++    }
++    // END PATCH
+     if (isset($form['buttons']['delete']) && node_tools_get_number_of_revisions($nid) > 1) {
+       // Special treatment for Delete button when there's multiple revisions.
+       // Make it obvious to the user that a 'Delete' is in fact 'Delete all'.

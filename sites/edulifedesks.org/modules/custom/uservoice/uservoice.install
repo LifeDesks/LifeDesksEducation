@@ -1,0 +1,27 @@
+<?php 
+//$Id$
+/**
+ * @file
+ * Install and uninstall functions for Uservoice module.
+ */
+/**
+ * Implementation of hook_install().
+ */
+function uservoice_install() {
+  variable_set('uservoice_api_key', '');
+  variable_set('uservoice_account_key', '');
+  variable_set('uservoice_forum_id', '');
+  variable_get('uservoice_override_validation', 0);
+  variable_set('uservoice_feedback_mlid', 0);
+}
+/**
+ * Implementation of hook_uninstall().
+ */
+function uservoice_uninstall() {
+  if (variable_get('uservoice_feedback_mlid', 0) > 0) menu_link_delete(variable_get('uservoice_feedback_mlid', 0));
+  variable_del('uservoice_api_key');
+  variable_del('uservoice_account_key');
+  variable_del('uservoice_forum_id');
+  variable_del('uservoice_override_validation');
+  variable_del('uservoice_feedback_mlid');
+}

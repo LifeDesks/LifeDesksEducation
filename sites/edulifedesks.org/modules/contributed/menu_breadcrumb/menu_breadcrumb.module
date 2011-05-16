@@ -1,0 +1,138 @@
+<?php
+// $Id: menu_breadcrumb.module,v 1.4 2008/02/20 18:56:34 gdevlugt Exp $
+/**
+ * @file
+ * The main file for the menu_breadcrumb module.
+ *
+ * By default, Drupal 6 will use the Navigation menu for the breadcrumb.
+ * This module allows you to use the menu the current page belongs to for
+ * the breadcrumb.
+ *
+ * As an added bonus, it also allows you to append the page title to the
+ * breadcrumb (either as a clickable url or not) and hide the breadcrumb
+ * if it only contains the link to the front page.
+ *
+ * Maintained by: Geoffrey de Vlugt <gdevlugt@gmail.com>
+ */
+
+/**
+ * Implementation of hook_help().
+ */
+function menu_breadcrumb_help($path, $arg) {
+  $output = '';
+  switch ($path) {
+    case 'admin/settings/modules#description':
+      $output = t('Allows you to use the menu the current page belongs to for the breadcrumb.');
+      break;
+    case 'admin/settings/menu_breadcrumb':
+      $output = t('<p>By default, Drupal 6 will use the Navigation menu for the breadcrumb. This module allows you to use the menu the current page belongs to for the breadcrumb.</p><p>As an added bonus, it also allows you to append the page title to the breadcrumb (either as a clickable url or not) and hide the breadcrumb if it only contains the link to the front page.</p>');
+      break;
+  }
+  
+  return $output;
+}
+
+/**
+ * Implementation of hook_menu().
+ */
+function menu_breadcrumb_menu() {
+  $items = array();
+
+  $items['admin/settings/menu_breadcrumb'] = array(
+    'title' => 'Menu breadcrumb',
+    'description' => 'Configure menu breadcrumb.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('menu_breadcrumb_admin_settings_form'),
+    'access arguments' => array('administer site configuration'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+
+  return $items;
+}
+
+/**
+ * Implementation of hook_enable().
+ */
+function menu_breadcrumb_enable() {
+  variable_set('menu_breadcrumb_determine_menu', 1);
+  variable_set('menu_breadcrumb_append_node_title', 0);
+  variable_set('menu_breadcrumb_append_node_url', 0);
+  variable_set('menu_breadcrumb_hide_on_single_item', 0);
+}
+
+/**
+ * Implementation of hook_disable().
+ */
+function menu_breadcrumb_disable() {
+  variable_del('menu_breadcrumb_determine_menu');
+  variable_del('menu_breadcrumb_append_node_title');
+  variable_del('menu_breadcrumb_append_node_url');
+  variable_del('menu_breadcrumb_hide_on_single_item');
+}
+
+/**
+ * Implementation of hook_init().
+ */
+function menu_breadcrumb_init() {
+  if (variable_get('menu_breadcrumb_determine_menu', 1)) {
+    $menu_item = menu_get_item();
+    $menu_link = menu_link_load(db_result(db_query("SELECT mlid FROM {menu_links} WHERE link_path = '%s'", $menu_item['href'])));
+    $use_menu = $menu_link['menu_name'];
+    menu_set_active_menu_name($use_menu);
+  }
+
+  $breadcrumb = drupal_get_breadcrumb();
+  
+  if (variable_get('menu_breadcrumb_append_node_title', 0) == 1) {
+    if (variable_get('menu_breadcrumb_append_node_url', 0) == 1) {
+      $breadcrumb[] = l(drupal_get_title(), $_GET['q']);
+    }
+    else {
+      $breadcrumb[] = drupal_get_title();
+    }
+  }
+    
+  if (count($breadcrumb) == 1 && variable_get('menu_breadcrumb_hide_on_single_item', 0)) {
+    $breadcrumb = array();
+  }
+    
+  drupal_set_breadcrumb($breadcrumb);
+}
+
+/**
+ * Menu breadcrumb admin settings form.
+ *
+ * @return
+ * The settings form used by Menu breadcrumb.
+ */
+function menu_breadcrumb_admin_settings_form() {
+  $form['menu_breadcrumb_determine_menu'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Use menu the page belongs to for the breadcrumb.'),
+    '#description' => t('By default, Drupal 6 will use the Navigation menu for the breadcrumb. If you want to use the menu the active page belongs to for the breadcrumb, enable this option.'),
+    '#default_value' => variable_get('menu_breadcrumb_determine_menu', 1),
+  );
+    
+  $form['menu_breadcrumb_append_node_title'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Append page title to breadcrumb'),
+    '#description' => t('Choose whether or not the page title should be included in the breadcrumb.'),
+    '#default_value' => variable_get('menu_breadcrumb_append_node_title', 0),
+  );
+
+  $form['menu_breadcrumb_append_node_url'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Appended page title as an URL.'),
+    '#description' => t('Choose whether or not the appended page title should be an URL.'),
+    '#default_value' => variable_get('menu_breadcrumb_append_node_url', 0),
+  );
+
+  $form['menu_breadcrumb_hide_on_single_item'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Hide the breadcrumb if the breadcrumb only contains the link to the front page.'),
+    '#description' => t('Choose whether or not the breadcrumb should be hidden if the breadcrumb only contains a link to the front page (<em>Home</em>.).'),
+    '#default_value' => variable_get('menu_breadcrumb_hide_on_single_item', 0),
+  );
+
+  return system_settings_form($form);
+}

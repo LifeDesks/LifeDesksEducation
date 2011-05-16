@@ -1,0 +1,124 @@
+? 710514-activated-layers-03.patch
+? 721924-limit-drawfeatures-8.patch
+? map-structure-handling-784092-10.patch
+? openlayers-localizations-750810-23.patch
+? openlayers-localizations-750810-24.patch
+? vector_layer_type_property.patch
+? includes/layer_types/vector.inc
+? includes/layer_types/vector.js
+? modules/openlayers_views/views/openlayers-views-data.tpl.php
+Index: includes/behaviors/openlayers_behavior_drawfeatures.inc
+===================================================================
+RCS file: /cvs/drupal-contrib/contributions/modules/openlayers/includes/behaviors/Attic/openlayers_behavior_drawfeatures.inc,v
+retrieving revision 1.1.2.2
+diff -u -p -r1.1.2.2 openlayers_behavior_drawfeatures.inc
+--- includes/behaviors/openlayers_behavior_drawfeatures.inc	7 May 2010 21:57:45 -0000	1.1.2.2
++++ includes/behaviors/openlayers_behavior_drawfeatures.inc	16 May 2010 00:00:52 -0000
+@@ -17,6 +17,7 @@ class openlayers_behavior_drawfeatures e
+     return array(
+       'element_id' => '',
+       'feature_types' => array(),
++      'feature_limit' => '',
+     );
+   }
+ 
+@@ -35,6 +36,12 @@ class openlayers_behavior_drawfeatures e
+         '#description' => t('Select what features are available to draw.'),
+         '#default_value' => isset($defaults['feature_types']) ? $defaults['feature_types'] : array(),
+       ),
++      'feature_limit' => array(
++        '#title' => t('Number of features'),
++        '#type' => 'textfield',
++        '#description' => t('The number of features that are allowed to be drawn.  Leave blank or at 0 for unlimited.'),
++        '#default_value' => isset($defaults['feature_limit']) ? $defaults['feature_limit'] : '',
++      ),
+       'element_id' => array(
+         '#type' => 'textfield',
+         '#default_value' => (isset($defaults['element_id'])) ?
+Index: includes/behaviors/js/openlayers_behavior_drawfeatures.js
+===================================================================
+RCS file: /cvs/drupal-contrib/contributions/modules/openlayers/includes/behaviors/js/Attic/openlayers_behavior_drawfeatures.js,v
+retrieving revision 1.1.2.5
+diff -u -p -r1.1.2.5 openlayers_behavior_drawfeatures.js
+--- includes/behaviors/js/openlayers_behavior_drawfeatures.js	12 May 2010 10:27:51 -0000	1.1.2.5
++++ includes/behaviors/js/openlayers_behavior_drawfeatures.js	16 May 2010 00:00:53 -0000
+@@ -7,6 +7,7 @@
+ 
+ // Declare global variable
+ openlayers_drawfeature_element = null;
++openlayers_drawfeature_limit = 0;
+ 
+ /**
+  * Update function for features
+@@ -16,13 +17,22 @@ openlayers_drawfeature_element = null;
+ function update(features) {
+   WktWriter = new OpenLayers.Format.WKT();
+   var features_copy = features.object.clone();
+-  for(var i in features_copy.features) {
+-    // transform() modifies geometry
++  
++  // Reproject features.
++  for (var i in features_copy.features) {
+     features_copy.features[i].geometry.transform(
+       features.object.map.projection,
+       new OpenLayers.Projection("EPSG:4326")
+     );
+   }
++  
++  // Check if we have reached limit.
++  if (features_copy.features.length > openlayers_drawfeature_limit) {
++    // Destroy the newest feature added here.
++    
++  }
++  
++  // Write out features to element.
+   wkt_value = WktWriter.write(features_copy.features);
+   openlayers_drawfeature_element.text(wkt_value);
+ }
+@@ -38,6 +48,8 @@ Drupal.behaviors.openlayers_behavior_dra
+     // Add control
+     openlayers_drawfeature_element = 
+       $("#" + data.map.behaviors['openlayers_behavior_drawfeatures'].element_id);
++    openlayers_drawfeature_limit = 
++      data.map.behaviors['openlayers_behavior_drawfeatures'].feature_limit;
+ 
+     // Create options
+     var options = {
+Index: modules/openlayers_cck/openlayers_cck.module
+===================================================================
+RCS file: /cvs/drupal-contrib/contributions/modules/openlayers/modules/openlayers_cck/openlayers_cck.module,v
+retrieving revision 1.54.2.31
+diff -u -p -r1.54.2.31 openlayers_cck.module
+--- modules/openlayers_cck/openlayers_cck.module	15 May 2010 21:31:37 -0000	1.54.2.31
++++ modules/openlayers_cck/openlayers_cck.module	16 May 2010 00:00:53 -0000
+@@ -439,7 +439,6 @@ function openlayers_cck_field_formatter_
+  */
+ function _openlayers_cck_render_element_map($field_name = '', 
+   $field_label = '', $values = array(), $field = array()) {
+-
+   $field_id = 'edit-' . str_replace('_', '-', $field_name) . '-openlayers-wkt';
+   
+   // Get map to use for field
+@@ -456,11 +455,21 @@ function _openlayers_cck_render_element_
+ 
+   $map['id'] = OPENLAYERS_CCK_WIDGET_MAP_ID_PREFIX . '-' . $field_name;
+ 
++  // Handle multiples
++  $limit = 0;
++  if ($field['multiple'] == 0) {
++    $limit = 1;
++  }
++  elseif ($field['multiple'] > 1) {
++    $limit = $field['multiple'];
++  }
++
+   // Make sure that our display projection matches the database projection
+   // TODO: rewrite
+   $map['behaviors']['openlayers_behavior_drawfeatures'] = array(
+     'element_id' => $field_id,
+-    'feature_types' => $field['openlayers_cck_feature_types']
++    'feature_types' => $field['openlayers_cck_feature_types'],
++    'feature_limit' => $limit,
+   );
+ 
+   return openlayers_render_map($map);

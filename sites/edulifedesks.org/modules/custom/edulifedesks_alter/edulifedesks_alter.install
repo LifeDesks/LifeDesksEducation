@@ -1,0 +1,38 @@
+<?php 
+//$Id$
+/**
+ * @file
+ * Install and uninstall scripts for Education LifeDesks Alter module.
+ */
+/**
+ * Implementation of hook_install().
+ */
+function edulifedesks_alter_install() {
+}
+/**
+ * Implementation of hook_uninstall().
+ */
+function edulifedesks_alter_uninstall() {
+}
+/**
+ * Implementation of hook_update_N().
+ * @return array
+ */
+function edulifedesks_alter_update_6002() {
+  $ret = array();
+  // Bug in Calendar module that leaves node links even though they are no longer valid.
+  // @see http://drupal.org/node/462748
+  // Remove variable and this remove link.
+  variable_del('calendar_date_link_assignment');
+  return $ret;
+}
+/**
+ * Implentation of hook_update_last_removed().
+ * Let Drupal know about removed updates.
+ */
+function hook_update_last_removed() {
+  // Removed update 6001. It was a one off fix for missing rows in the better formats table as is no longer required.
+  // The next update function is edulifedesks_alter_update_6002().
+  return 6001;
+}
+//*/

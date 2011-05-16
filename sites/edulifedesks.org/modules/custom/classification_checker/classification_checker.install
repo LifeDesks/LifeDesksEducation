@@ -1,0 +1,13 @@
+<?php
+
+/*
+ * Implementation of hook_install
+ */
+function classification_checker_install() {
+  //Change the weight of the classification_checker module so it's alters are processed next to last
+  db_query("UPDATE {system} SET weight = 98 WHERE name = 'classification_checker'");
+}
+
+function classification_checker_uninstall() {
+
+}

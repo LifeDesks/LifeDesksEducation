@@ -1,0 +1,165 @@
+<?php
+// $Id$
+/**
+ * @file
+ * Module for adding help tips to Education LifeDesks.
+ * This module adds context sensitive links to useful next steps and help tips
+ * @see http://edulifedesks.org
+ */
+
+/**
+ * Implementation of hook_init().
+ */
+function edulifedesks_help_tips_init() {
+  drupal_add_css(drupal_get_path('module', 'edulifedesks_help_tips') .'/css/edulifedesks_help_tips.css', 'module', 'all');
+}
+/**
+ * Implementation of hook_help().
+ *
+ */
+function edulifedesks_help_tips_help($path, $arg) {
+  if ($path == 'admin/help#edulifedesks_help_tips') {
+    $txt = 'The EduLifeDesks Help Tips module provides context sensitive help on EduLifeDesks pages. '
+         . 'Help tips can be configured to show up only for specific roles, and can be linked to more '
+         . 'detailed help pages. Help tips show up in a block that the users can choose to hide '
+         . 'in their account settings.';
+    return '<p>'. t($txt) .'</p>';
+  }
+}
+/**
+ * Implementation of hook_views_api().
+ */
+function edulifedesks_help_tips_views_api() {
+  return array(
+    'api' => 2,
+    'path' => drupal_get_path('module', 'edulifedesks_help_tips') .'/includes'
+  );
+}
+/**
+ * Implementation of hook_preprocess_views_view_fields().
+ * 
+ */
+function edulifedesks_help_tips_preprocess_views_view_fields(&$vars) {
+  if (isset($vars['fields']['field_help_page_nid']) && $vars['fields']['field_help_page_nid']) {
+    foreach ($vars['view']->result as $tip) {
+      if ($tip->node_data_field_internal_path_field_help_page_nid == $vars['fields']['field_help_page_nid']->raw) {
+        if ($tip->node_data_field_use_lightbox == 1) {
+          $vars['fields']['field_help_page_nid']->content = str_replace('<a', '<a class="more" rel="lightmodal[Help][Help]"', $vars['fields']['field_help_page_nid']->content);
+        }
+      }
+    }
+  }
+}
+/**
+ * Implementation of hook__preprocess_views_view().
+ * 
+ */
+function edulifedesks_help_tips_preprocess_views_view(&$vars) {
+  $display_id = 'block_1';
+  if ($vars['view']->name == 'edulifedesks_help_tips' && $vars['view']->current_display == $display_id) {
+    foreach ($vars['view']->result as $tip) {
+      // For each result (help tip) check to see if override has been checked.
+      if ($tip->node_data_field_internal_path_field_override_heading_value == 1) {
+        // Override is checked so replace view header with node title (change header format to filtered html).
+        $vars['header'] = '<h2 class="title">' . $tip->node_title .'</h2>';
+        // Exit foreach loop once title has been overridden - basically first help tip to override title takes precedence.
+        break;
+      }
+    }
+  }
+}
+/**
+ * Implementation of hook_views_query_alter().
+ */
+function edulifedesks_help_tips_views_query_alter(&$view, &$query) {
+  // $language = _edulifedesks_help_tips_get_user_locale(); // User's language
+  // TODO: retrieve multilingual help based on users locale???
+  if ($view->name == 'edulifedesks_help_tips') {
+    $current_path = (isset($_GET['q']) && $_GET['q'] != 'home') ? $_GET['q'] : '<front>';
+    $current_alias = substr(request_uri(), 1);
+    if (preg_match('@.*/$@i', $current_alias)) $current_alias = substr($current_alias, 0, drupal_strlen($current_alias) - 1);
+    $current_alias = str_replace('/', '|', $current_alias);
+    $current_alias = preg_replace('@[?].*$@i', '', $current_alias);
+    // allowed paths that author of help tip can choose from in select list
+    // TODO: create help_tip CCK content type programmatically in this module
+    /* return array(
+      '<front>' => 'Site home page',
+      'groups|my|activity' => 'Site section: My groups',
+      'class|%nid' => 'Class section: Overview',
+      'class|%nid|taxon-pages' => 'Class section: Taxon pages > List',
+      'class|%nid|taxon-page|%nid' => 'Class section: Taxon pages > Taxon page > view',
+      'class|%nid|assignments' => 'Class section: Assignments > List',
+      'og|users|%nid' => 'Class section: Members > List',
+      'og|users|%nid|add_user' => 'Class section: Members > Add members',
+      'og|users|%nid|roles' => 'Class section: Members > Configure roles',
+      'class|%nid|broadcast' => 'Class section: Send email',
+    );*/
+    // Get views argument from current path or alias
+    $path_arg = '';
+    if ($current_path == '<front>') {
+      $path_arg = $current_path;
+    } else {
+      $path_arg = preg_replace('@\|[0-9]+@i', '|%nid', $current_alias);
+      $path_arg = preg_replace('@\|(view|list)@i', '', $path_arg);
+    }
+    if ($path_arg) $query->where[0]['args'][1] = $path_arg;
+    // Get current user's roles
+    $roles = _edulifedesks_help_tips_get_user_roles();
+    $rids_where_clause = $query->where[0]['clauses'][3];
+    $i = 2;
+    foreach ($roles as $rid => $role) {
+      if ($i > 2) $rids_where_clause .= ' OR ' .$query->where[0]['clauses'][3];
+      $query->where[0]['args'][$i] = strval($rid);
+      $i++;
+    }
+    if (count($roles) > 1) $query->where[0]['clauses'][3] = '(' .$rids_where_clause .')';
+  }
+}
+/**
+ * Helper function to get current users roles
+ */
+function _edulifedesks_help_tips_get_user_roles() {
+  global $user;
+  $roles = $user->roles;
+  // Add group roles
+  $group_roles = array();
+  $group_node = og_get_group_context();
+  if ($group_node) {
+    // If there is a group context then get user roles for this group
+    $group_roles[] = og_user_roles_get_roles_by_group($group_node->nid, $user->uid);
+  } else {
+    // If no group context then return all user's group roles
+    foreach ($user->og_groups as $gid => $group) {
+      $group_roles[] = og_user_roles_get_roles_by_group($gid, $user->uid);
+    }
+  }
+  foreach ($group_roles as $role) {
+    foreach ($role as $rid) {
+      $roles[$rid] = db_result(db_query('SELECT name FROM {role} WHERE rid = %d', $rid));
+    }
+  }
+  return $roles;
+}
+/**
+ * Helper function to get current users locale
+ */
+function _edulifedesks_help_tips_get_user_locale() {
+  global $user, $language;
+
+  $default_language = $language->language;
+  if (strcmp($default_language, "en")) {
+    return $default_language;
+  }
+  if (isset($user->language) && !is_null($user->language) && drupal_strlen($user->language) > 0) {
+    return $user->language;
+  }
+
+  if (module_exists('locale')) {
+    global $locale;
+    if (!is_null($locale) && drupal_strlen($locale) > 0) {
+      return $locale;
+    }
+  }
+  // Default to English if nothing else matches
+  return 'en';
+}

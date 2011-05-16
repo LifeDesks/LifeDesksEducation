@@ -1,0 +1,33 @@
+<?php
+// $Id$
+/**
+ * @file
+ * Install and uninstall scripts for EOL Partnership OG module.
+ */
+/**
+ * Implementation of hook_install().
+ */
+function eol_partnership_og_install() {
+
+}
+/**
+ * Impementation of hook_uninstall().
+ */
+function eol_partnership_og_uninstall() {
+  variable_del('eol_partnership_og_block_member_vis');
+  variable_del('eol_partnership_og_block_perm_vis');
+  variable_del('eol_partnership_og_block_vis');
+  variable_del('eol_partnership_og_enabled');
+  variable_del('eol_partnership_og_groups');
+  db_query("DELETE FROM {blocks} WHERE module = '%s'", 'eol_partnership_og');
+  // TODO: Adjust EOL Partnership view to remove OG settings?
+}
+/**
+ * Implementation of hook_disable().
+ */
+function eol_partnership_og_disable() {
+  // Disable EOL Partnership OG Blocks
+  db_query("UPDATE {blocks} SET status = %d WHERE module = '%s'", 0, 'eol_partnership_og');
+  // TODO: Adjust EOL Partnership view to remove OG settings?
+  // TODO: Adjust variables to disabled OG settings?
+}

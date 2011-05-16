@@ -1,0 +1,48 @@
+Index: views_crosstab_table.inc
+===================================================================
+--- views_crosstab_table.inc	(revision 3555)
++++ views_crosstab_table.inc	(working copy)
+@@ -111,10 +111,16 @@
+       // http://drupal.org/node/385158
+       $crosstab_columns_query->fields[$key]['aggregate'] = TRUE;
+       $this->view->query->fields[$key]['aggregate'] = TRUE;
+       // Locate the crosstab rows, column and data fields.
+       if ($field['field'] == $options['crosstab_rows']) {
+         $crosstab_rows = $field;
+       }
++      // Patch for using crosstab with Organic Groups as rows -lwalley
++      elseif ($options['crosstab_rows'] == 'group_nid' && $key == 'og_ancestry_nid') {
++        $crosstab_rows = $field;
++      }
++      // End patch
+       if ($field['field'] == $options['crosstab_columns']) {
+         $crosstab_columns = $field;
+       }
+@@ -150,9 +156,13 @@
+     $crosstab_columns_query->add_groupby($crosstab_columns['alias']);
+     $crosstab_columns_query->orderby = array();
+     $query = $crosstab_columns_query->query();
+-    // Run the query and collate the results.
+-    $results = db_query($query);
+ 
++    // Run the query and collate the results.
++    // Patch to add args to query for filters -lwalley
++    $args = $crosstab_columns_query->get_where_args();
++    $results = db_query($query, $args);
++    // End patch
++    
+     // Crosstab COUNT is really a SUM of 1s.
+     if ($options['crosstab_operation'] == 'COUNT') {
+       $data = 1;
+@@ -185,7 +195,10 @@
+     // Add a "Total" column.
+     // TODO: Add an option for this.
+     $alias = $crosstab_columns['alias'] . '_total';
+-    $this->view->query->add_field(NULL, $options['crosstab_operation'] . '(' . $crosstab_data['table'] . '.' . $crosstab_data['field'] . ')', $alias);
++    // Patch to switch total operation from SUM to COUNT -lwalley
++    $total_operation = ($options['crosstab_operation'] == 'SUM') ? 'COUNT' : $options['crosstab_operation'];
++    $this->view->query->add_field(NULL, $total_operation . '(' . $crosstab_data['table'] . '.' . $crosstab_data['field'] . ')', $alias);
++    // End patch
+     $this->view->query->fields[$alias]['aggregate'] = TRUE;
+     $this->view->field[$alias] = drupal_clone($this->view->field[$crosstab_data['field']]);
+     $this->view->field[$alias]->field_alias = $alias;

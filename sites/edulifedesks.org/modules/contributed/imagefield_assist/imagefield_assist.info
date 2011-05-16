@@ -1,0 +1,18 @@
+; $Id: imagefield_assist.info,v 1.1.2.3 2009/12/01 15:58:32 franz Exp $
+name = ImageField Assist
+description = This module allows users to upload and insert inline images into posts. It automatically generates an Add image link under the textarea fields of your choice, provides a tinyMCE plugin, using ImageField fields as resource.
+dependencies[] = imagefield
+dependencies[] = imagecache
+dependencies[] = views
+dependencies[] = content_copy
+
+package = Image
+core = 6.x
+
+
+; Information added by drupal.org packaging script on 2009-12-02
+version = "6.x-1.x-dev"
+core = "6.x"
+project = "imagefield_assist"
+datestamp = "1259712446"
+

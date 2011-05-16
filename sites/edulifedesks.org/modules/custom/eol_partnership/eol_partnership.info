@@ -1,0 +1,9 @@
+; $Id$
+name = "EOL Partnership"
+description = "(Alpha release) Provides a mechanism to create content that is compatible with the Encyclopedia of Life (EOL) content partner schema."
+package = Encyclopedia of Life
+dependencies[] = content_copy
+dependencies[] = views
+dependencies[] = views_bonus_export
+core = 6.x
+php = 5.2

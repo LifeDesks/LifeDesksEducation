@@ -1,0 +1,83 @@
+<?php
+// $Id$
+/**
+ * @file
+ * Module for adding Internationalization support to the Encyclopedia of Life (EOL) Partnership module.
+ */
+/**
+ * Implementation of hook_form_alter().
+ */
+function eol_partnership_i18n_form_alter(&$form, &$form_state, $form_id) {
+  // Allow user to add language as field to eol_partnership view
+  if ($form_id == 'eol_partnership_settings') {
+    $form['eol_partnership_i18n_settings'] = array(
+      '#type' => 'fieldset',
+      '#title' => t('Internationalization settings'),
+      '#collapsible' => TRUE,
+      '#weight' => 0,
+      '#description' => t("By activating internationalization compatibility, a node's language code will be added to each text data object contained within that node."),
+    );
+    $form['eol_partnership_i18n_settings']['eol_partnership_i18n_enabled'] = array(
+      '#type' => 'checkbox',
+      '#title' => t('Enable internationalization'),
+      '#default_value' => variable_get('eol_partnership_i18n_enabled', 0),
+    );
+    $form['#submit'][] = '_eol_partnership_settings_i18n_submit';
+  }
+}
+/**
+ * Custom submit handler for eol_partnership_settings
+ * Adds/removes Internationalization support to/from view
+ */
+function _eol_partnership_settings_i18n_submit($form, &$form_state) {
+  // Add internationalization field to view
+  $view = views_get_view(EOL_PARTNERSHIP_VIEW_NAME, TRUE);
+  $display = $form_state['values']['eol_partnership_view_display'];
+  $language_field_id = 'eol_partnership_i18n_language_field';
+  // Determine whether feed has fields which override default display, if not use default display
+  $display = isset($view->display[$display]->display_options['fields']) ? $display : 'default';
+  if ($form_state['values']['eol_partnership_i18n_enabled'] == 1) {
+    // Only add field if it doesn't already exist
+    if (empty($language_field_id) || !isset($view->display[$display]->display_options['fields'][$language_field_id])) {
+      //'language' =>
+      $language_field_options = array(
+        'label' => 'Language',
+        'alter' => array(
+          'alter_text' => 0,
+          'text' => '',
+          'make_link' => 0,
+          'path' => '',
+          'link_class' => '',
+          'alt' => '',
+          'prefix' => '',
+          'suffix' => '',
+          'target' => '',
+          'help' => '',
+          'trim' => 0,
+          'max_length' => '',
+          'word_boundary' => 1,
+          'ellipsis' => 1,
+          'strip_tags' => 0,
+          'html' => 0,
+        ),
+        'empty' => '',
+        'hide_empty' => 0,
+        'empty_zero' => 0,
+        'link_to_node' => 0,
+        'exclude' => 0,
+        'relationship' => 'none',
+      );
+      $view->add_item($display, 'field', 'node', 'language', $language_field_options, $language_field_id);
+      $view->disabled = FALSE;
+      $view->is_cacheable = FALSE;
+      $view->save();
+    }
+  } else {
+    // Remove field
+    if (!empty($language_field_id) && isset($view->display[$display]->display_options['fields'][$language_field_id])) {
+      unset($view->display[$display]->display_options['fields'][$language_field_id]);
+      $view->is_cacheable = FALSE;
+      $view->save();
+    }
+  }
+}

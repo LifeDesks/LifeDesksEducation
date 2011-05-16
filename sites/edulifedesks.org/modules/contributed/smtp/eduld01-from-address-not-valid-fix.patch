@@ -1,0 +1,18 @@
+Index: smtp.module
+===================================================================
+--- smtp.module	(revision 3779)
++++ smtp.module	(working copy)
+@@ -315,10 +315,11 @@
+     }
+   }
+  */
+-  if (preg_match('/^".*"\s*<.*>$/', $from)) {
++  
++  if (preg_match('/^"?.*"?\s*<.*>$/', $from)) {
+     // . == Matches any single character except line break characters \r and \n.
+     // * == Repeats the previous item zero or more times.
+-    $from_name = preg_replace('/"(.*)"(.*)/i',   '$1', $from); // It gives: Name
++    $from_name = preg_replace('/"?(.*)"?\s(.*)/i',   '$1', $from); // It gives: Name
+     $from      = preg_replace("/(.*)\<(.*)\>/i", '$2', $from); // It gives: name@domain.tld
+   }
+   elseif (!valid_email_address($from)) {

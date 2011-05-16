@@ -1,0 +1,53 @@
+span.classification-checker-eol {
+   display:block;
+   background-image: url(../images/EOL_logo_small.jpg);
+   line-height: 20px;
+   height: 20px;
+   background-position: 0px center;
+   background-repeat: no-repeat;
+   padding-left:45px;
+}
+
+#classification-checker-overlay {
+	position: absolute;
+	top: 0;
+	left: 0;
+	z-index: 1000;
+	width: 100%;
+	height: 500px;
+	display:none;
+}
+
+div.classification-checker {
+	margin:0px auto !important;
+	width:50% !important;
+}
+
+div.classification-checker ul {
+  margin:5px 0px 5px 0px !important;
+  padding:0px;
+  list-style:none;
+}
+
+div.classification-checker ul li {
+  text-indent:-20px;
+}
+
+div.throbber {
+	background-image: url(../images/throbber.gif) !important;
+}
+
+#classification-checker-messsage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1001;
+  width: 300px;
+  text-align:center;
+  display:none;
+}
+
+input.classification-checker-copied {
+	background-color:#B6D328 !important;
+}
+

@@ -1,0 +1,14 @@
+Index: includes/view.inc
+===================================================================
+--- includes/view.inc	(revision 3706)
++++ includes/view.inc	(working copy)
+@@ -705,6 +705,9 @@
+ 
+     vpr($query);
+ 
++    // Dirty workaround for missing OG User Roles, when outside OG context -lwalley
++    _edulifedesks_alter_ogur_node_access_fix($query, $this);
++    _edulifedesks_alter_ogur_node_access_fix($count_query, $this); 
+ 
+     // Check for already-cached results.
+     if (!empty($this->live_preview)) {

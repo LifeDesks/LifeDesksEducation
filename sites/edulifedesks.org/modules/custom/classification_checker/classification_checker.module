@@ -1,0 +1,178 @@
+<?php
+
+/**
+ * Implementation of hook_perm
+ */
+function classification_import_perm() {
+  return array(
+    'administer classification check'
+  );
+}
+
+/*
+ * Implementation of hook_menu
+ */
+function classification_checker_menu() {
+
+  $items['admin/settings/classification_checker'] = array(
+    'title' => 'Classification Checker settings',
+    'description' => 'Configure behavior of the classification_checker module.',
+    'type' => MENU_NORMAL_ITEM,
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('classification_checker_admin_settings'),
+    'access arguments' => array('administer classification check'),
+    'file' => 'classification_checker.admin.inc',
+  );
+
+  $items['classification_checker/lookup'] = array(
+    'page callback' => 'classification_checker_lookup',
+    'type' => MENU_CALLBACK,
+    'access arguments' => array('access content'),
+  );
+
+  return $items;
+}
+
+/*
+ * Implementation of hook_form_alter
+ */
+function classification_checker_form_alter(&$form, $form_state, $form_id) {
+
+  if($form_id == 'taxon_page_node_form') {
+
+    //Find all the dwc elements in form and add to js settings
+    $field_ranks = array();
+    foreach($form['group_classification'] as $key => $value) {
+	  preg_match("/dwc/i", $key, $matches);
+	  if($matches) {
+	    $field_ranks[strtolower(str_replace('field_dwc_','',$key))] = 'edit-' . str_replace('_','-',$key) . '-0-value';	
+	  }
+    }
+
+	$module_path = drupal_get_path('module', 'classification_checker') .'/';
+    drupal_add_js($module_path . 'js/classification_checker.js');
+    drupal_add_js(array('classification_checker_fieldranks' => $field_ranks), 'setting');
+    drupal_add_css($module_path . 'css/classification_checker.css');
+
+    $form['field_dwc_scientificname'][0]['#description'] = t('Enter the full name of the lowest level taxon that applies to this organism.') . '<span class="classification-checker-eol">' . t('!link for your entered name and automatically fill in the <em>Biological classification</em> information above.', array('!link' => l(t('Check EOL'), 'node/add/taxon-page', array('fragment' => 'check', 'attributes' => array('html' => true, 'onclick' => 'javascript:CLASSCHKR.checkName(); return false;'))))) . '</span>';
+
+    $form['#validate'][] = 'classification_checker_form_validate';
+
+    return $form;
+  }
+}
+
+function classification_checker_form_validate($form, $form_state) {
+    //Find all the dwc elements in form and add to js settings
+    $field_ranks = array();
+    foreach($form['group_classification'] as $key => $value) {
+      preg_match("/dwc/i", $key, $matches);
+      if($matches) {
+        $field_ranks[strtolower(str_replace('field_dwc_','',$key))] = 'edit-' . str_replace('_','-',$key) . '-0-value';	
+      }
+    }
+
+    $module_path = drupal_get_path('module', 'classification_checker') .'/';
+    drupal_add_js($module_path . 'js/classification_checker.js');
+    drupal_add_js(array('classification_checker_fieldranks' => $field_ranks), 'setting');
+    drupal_add_css($module_path . 'css/classification_checker.css');
+}
+
+/*
+ * Callback function that receives posted name and produces JSON data object from EOL web service
+ */
+function classification_checker_lookup() {
+  module_load_include('class.php', 'classification_checker', 'classification_functions');
+
+  $taxon_name = new Names;
+
+  $form = array(
+    '#post' => $_POST,
+  );
+
+  $name = urlencode($taxon_name->canonical_form(strip_tags($_REQUEST['search'])));
+
+  $base = variable_get('classification_checker_service_baseurl', 'http://services.eol.org/lifedesk/');
+  $params = variable_get('classification_checker_service_params', 'service.php?function=search&hierarchy_id=147&search=');
+
+  $response = drupal_http_request($base . $params . $name);
+
+  if(!$response->code == 200) {
+	$status = "failed";
+	$message = t("Sorry, the service is currently unavailable");
+	$data = "";  	
+  }
+  else {	
+	$status = "ok";
+	$result = simplexml_load_string($response->data);
+	if($result->value) {
+		
+	  $services = _classification_checker_tcs_object_to_array($result);
+
+      if($services['value'][0]['name']) {
+	    $message = t('%name was found with more than one hierarchy', array('%name' => $services['value'][0]['name']));
+		foreach($services['value'] as $service) {
+		  $ranked_ancestry = explode('|', $service['ranked_ancestry']);
+		  foreach($ranked_ancestry as $ancestry) {
+		    $ranks_names = explode(":", $ancestry);
+			$last_ranked_name = $ranks_names[1];
+			$ranks[strtolower($ranks_names[0])] = $ranks_names[1];
+		  }
+		  $data[] = array(
+		    'searched_name' => $_REQUEST['search'],
+		    'found_name' => $service['name'],
+		    'canonical' => $service['canonical_form'],
+		    'id' => $service['id'],
+		    'ranked_ancestry' => str_replace(':', ': ', implode(', ', $ranked_ancestry)),
+		    'last_ranked_name' => $last_ranked_name,
+			'ranks' => $ranks,
+		  );
+		}
+      }
+      else {
+	    $message = t('%name was found with the following hierarchy', array('%name' => $services['value']['name']));
+	    $ranked_ancestry = explode('|', $services['value']['ranked_ancestry']);
+	    foreach($ranked_ancestry as $ancestry) {
+		  $ranks_names = explode(":", $ancestry);
+		  $last_ranked_name = $ranks_names[1];
+		  $ranks[strtolower($ranks_names[0])] = $ranks_names[1];
+	    }
+	    $data[] = array(
+		  'searched_name' => $_REQUEST['search'],
+		  'found_name' => $services['value']['name'],
+		  'canonical' => $services['value']['canonical_form'],
+		  'id' => $services['value']['id'],
+		  'ranked_ancestry' => str_replace(':', ': ', implode(', ', $ranked_ancestry)),
+		  'last_ranked_name' => $last_ranked_name,
+		  'ranks' => $ranks,
+		);
+      }
+	}
+	else {
+	  $message = t('Sorry, that name was not found');
+	  $data = "";
+	}
+  }
+
+  drupal_json(array("status" => $status, "message" => $message, "data" => $data));
+}
+
+/**
+ * Helper function to recursively convert objects (e.g. like that from simplexml_load_string) to array
+ */
+function _classification_checker_tcs_object_to_array($mixed) {
+    if(is_object($mixed)) $mixed = (array) $mixed;
+    if(is_array($mixed)) {
+        $new = array();
+        foreach($mixed as $key => $val) {
+            $key = preg_replace("/^\\0(.*)\\0/","",$key);
+            $new[$key] = _classification_checker_tcs_object_to_array($val);
+        }
+    }
+    else $new = $mixed;
+    return $new;       
+}
+
+
+
+

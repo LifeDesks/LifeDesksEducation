@@ -1,0 +1,27 @@
+<?php
+// $Id$
+/**
+ * @file
+ * Install and uninstall scripts for EOL Partnership Workflow module.
+ */
+/**
+ * Implementation of hook_install().
+ */
+function eol_partnership_workflow_install() {
+
+}
+/**
+ * Impementation of hook_uninstall().
+ */
+function eol_partnership_workflow_uninstall() {
+  variable_del('eol_partnership_workflow_states');
+  variable_del('eol_partnership_workflow_states_op');
+  // TODO: Adjust EOL Partnership view to remove workflow settings?
+}
+/**
+ * Impementation of hook_disable().
+ */
+function eol_partnership_workflow_disable() {
+  // TODO: Adjust variables to disabled workflow settings?
+  // TODO: Adjust EOL Partnership view to remove workflow settings?
+}

@@ -1,0 +1,6 @@
+; $Id$
+name = "Uservoice"
+description = "Add Uservoice widget to your site."
+package = User feedback
+core = 6.x
+php = 5.2

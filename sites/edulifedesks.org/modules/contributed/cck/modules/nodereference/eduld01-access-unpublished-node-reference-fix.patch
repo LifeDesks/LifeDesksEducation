@@ -1,0 +1,31 @@
+Index: nodereference.module
+===================================================================
+--- nodereference.module	(revision 3779)
++++ nodereference.module	(working copy)
+@@ -256,12 +256,21 @@
+         $missing_ids = array_diff($ids, array_keys($sanitized_nodes));
+         if (!empty($missing_ids)) {
+           $where = array('n.nid in ('. db_placeholders($missing_ids) . ')');
+-          if (!user_access('administer nodes')) {
+-            $where[] = 'n.status = 1';
+-          }
+-          $result = db_query(db_rewrite_sql('SELECT n.nid, n.title, n.status FROM {node} n WHERE '. implode(' AND ', $where)), $missing_ids);
++          // Commenting out requirement for referenced node to be published - lwalley.
++          //if (!user_access('administer nodes')) {
++          //  $where[] = 'n.status = 1';
++          //}
++          $result = db_query(db_rewrite_sql('SELECT n.nid, n.title, n.status, n.type FROM {node} n WHERE '. implode(' AND ', $where)), $missing_ids);
+           while ($row = db_fetch_array($result)) {
+-            $sanitized_nodes[$row['nid']] = $row;
++            // Converting row (node data) to object so can be tested by module_grants_node_access function - lwalley.
++            $obj = new stdClass();
++            foreach ($row as $k => $v) {
++              $obj->$k = $v;
++            }
++            // If module grants returns true for view access then show referenced node link, otherwise don't show - lwalley.
++            if (module_grants_node_access('view', $obj)) {
++              $sanitized_nodes[$row['nid']] = $row;
++            }
+           }
+         }
+         foreach ($items as $delta => $item) {
