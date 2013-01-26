@@ -173,14 +173,21 @@ function theme_eol_partnership_og_block($group, $eol_partnership) {
     // show group info?
     if (!empty($eol_partnership)) {
       $content .= '<p>';
-      $content .= t('<a href="!eol_partner_registration_url">Register</a> as an EOL content partner, or <a href="!eol_partner_login_url">log in</a> to add/edit your group\'s content harvesting settings.', array('!eol_partner_registration_url' => 'https://eol.org/content_partner/register?method=get', '!eol_partner_login_url' => 'https://eol.org/content_partner/reports/login?method=get'));
+      $content .= t('Join <a href="!eol_url">EOL.org</a> to initiate a ' .
+                    '<a href="!partnership_info_url">content partnership</a>. ' .
+                    'When you join EOL as a member, you can initiate a content ' .
+                    'partnership in the Content Partners section of your Profile. ' .
+                    'For complete instructions go to the <a href="!publishing_help_url">Publishing Taxon Pages to EOL</a> ' .
+                    'help page.', array('!eol_url' => 'http://eol.org',
+                    '!partnership_info_url' => 'http://eol.org/info/partners#become',
+                    '!publishing_help_url' => url('help/publishing-taxon-pages-eol')));
       $content .= ' ' . t("Once you register your XML Source URL, and schedule a harvest, with EOL, your group's available content will be copied to EOL.");
       $content .= '</p>';
       $content .= '<dl>';
       $content .= '<dt>' .t('XML source URL:') .'</dt>';
       $content .= '<dd>';
       $content .= file_create_url($eol_partnership['feed_path']);
-      $content .= '</dd>';        
+      $content .= '</dd>';
       $content .= '</dl>';
       $content .= '<p>';
       if ($eol_partnership['results_count'] > 0) {
