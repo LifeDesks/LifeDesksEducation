@@ -19,7 +19,7 @@ To quickly set up a local version of Education LifeDesks for review purposes:
  1. Download and configure a compatible* version of Drupal http://drupal.org/download.
  2. Replace the Drupal 'sites' folder in core with the one provided by this Education LifeDesks repository.
 
-* Education LifeDesks is built on Drupal 6, and has been tested on version 6.20. See CHANGELOG.txt in https://github.com/LifeDesks/Drupal repository for the current version of Drupal core in use. 
+* Education LifeDesks is built on Drupal 6, and has been tested on version 6.20. See CHANGELOG.txt in https://github.com/LifeDesks/Drupal repository for the current version of Drupal core in use.
 
 LEGAL INFORMATION ABOUT EDUCATION LIFEDESKS
 -------------------------------------------
